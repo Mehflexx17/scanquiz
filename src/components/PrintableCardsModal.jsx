@@ -197,15 +197,22 @@ export default function PrintableCardsModal({ isOpen, onClose }) {
                 )}
               </div>
 
-              {/* Öğrenci No Etiketi */}
+              {/* Öğrenci No & İsim Etiketi */}
               <div style={{
                 marginTop: '12px',
                 fontWeight: 800,
-                fontSize: '1.1rem',
+                fontSize: '1.05rem',
                 fontFamily: 'monospace',
-                color: '#111'
+                color: '#111',
+                textAlign: 'center'
               }}>
                 Öğrenci #{studentId}
+                {typeof window !== 'undefined' && (() => {
+                  try {
+                    const r = JSON.parse(localStorage.getItem('scanquiz_roster') || '{}');
+                    return r[studentId] ? <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#333' }}>{r[studentId]}</div> : null;
+                  } catch(e) { return null; }
+                })()}
               </div>
             </div>
           );

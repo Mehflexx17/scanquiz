@@ -56,10 +56,72 @@ export default function HostControlPage() {
   const [questionState, setQuestionState] = useState('IDLE'); // 'IDLE', 'RUNNING', 'ENDED'
   const [submissions, setSubmissions] = useState(new Map()); // studentId -> { choice, time }
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
 
+  // Öğrenci Listesi / İsim Eşleme (Varsayılan liste)
+  const [roster, setRoster] = useState({
+    1: 'Ali Yılmaz',
+    2: 'Ayşe Kaya',
+    3: 'Mehmet Demir',
+    4: 'Zeynep Bal',
+    5: 'Can Sarı'
+  });
+  const [newStudentId, setNewStudentId] = useState('');
+  const [newStudentName, setNewStudentName] = useState('');
+  const [bulkNames, setBulkNames] = useState('');
+
   const fileInputRef = useRef(null);
+
+  // Yerel Roster'ı yükle
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('scanquiz_roster');
+        if (saved) setRoster(JSON.parse(saved));
+      } catch (e) {}
+    }
+  }, []);
+
+  const saveRoster = (newRoster) => {
+    setRoster(newRoster);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('scanquiz_roster', JSON.stringify(newRoster));
+    }
+    syncEngine.emit('roster_updated', newRoster);
+    soundEffects.playSubmit();
+  };
+
+  const addOrUpdateStudent = () => {
+    const id = parseInt(newStudentId, 10);
+    const name = newStudentName.trim();
+    if (!id || !name) return;
+
+    const updated = { ...roster, [id]: name };
+    saveRoster(updated);
+    setNewStudentId('');
+    setNewStudentName('');
+  };
+
+  const removeStudent = (id) => {
+    const updated = { ...roster };
+    delete updated[id];
+    saveRoster(updated);
+  };
+
+  const handleBulkImport = () => {
+    const lines = bulkNames.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length === 0) return;
+
+    const updated = { ...roster };
+    lines.forEach((name, idx) => {
+      updated[idx + 1] = name;
+    });
+    saveRoster(updated);
+    setBulkNames('');
+    alert(`${lines.length} adet öğrenci listeye kaydedildi!`);
+  };
 
   // Yerel Tahta PIN'ini otomatik algıla
   useEffect(() => {
@@ -211,6 +273,9 @@ export default function HostControlPage() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button onClick={() => setIsRosterModalOpen(true)} className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
+            👥 Sınıf Listesi & İsimler
+          </button>
           <Link href="/" target="_blank" className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
             📺 Tahtayı Aç (Sekmede)
           </Link>
@@ -498,6 +563,97 @@ export default function HostControlPage() {
           </section>
         </div>
       </div>
+
+      {/* Sınıf Listesi & İsim Eşleme Modalı */}
+      {isRosterModalOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.8)',
+          backdropFilter: 'blur(8px)',
+          zIndex: 9999,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}>
+          <div className="glass-card" style={{ maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '28px', background: '#12121a' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>👥 Sınıf Listesi & İsim Eşleme</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Kart numaralarına öğrenci isimleri atayın. Tahtada numara yerine isimler görünür.
+                </p>
+              </div>
+              <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-secondary" style={{ padding: '6px 12px' }}>
+                ✕
+              </button>
+            </div>
+
+            {/* Yeni Öğrenci / Numara Ekleme */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'var(--bg-secondary)', padding: '12px', borderRadius: '12px' }}>
+              <input
+                type="number"
+                placeholder="No (Örn: 6)"
+                value={newStudentId}
+                onChange={(e) => setNewStudentId(e.target.value)}
+                className="input"
+                style={{ width: '100px' }}
+              />
+              <input
+                type="text"
+                placeholder="Öğrenci Adı Soyadı (Örn: Berke Deniz)"
+                value={newStudentName}
+                onChange={(e) => setNewStudentName(e.target.value)}
+                className="input"
+                style={{ flex: 1 }}
+              />
+              <button onClick={addOrUpdateStudent} className="btn btn-success">
+                + Ekle
+              </button>
+            </div>
+
+            {/* Mevcut Liste */}
+            <div style={{ marginBottom: '24px' }}>
+              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px' }}>Kayıtlı Öğrenciler ({Object.keys(roster).length})</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                {Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([sId, sName]) => (
+                  <div key={sId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--bg-glass-border)' }}>
+                    <div>
+                      <strong style={{ color: 'var(--accent-secondary)' }}>#{sId}</strong> {sName}
+                    </div>
+                    <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0 4px', fontSize: '1rem' }} title="Sil">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Toplu İsim Yapıştırma */}
+            <div style={{ borderTop: '1px solid var(--bg-glass-border)', paddingTop: '16px' }}>
+              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '6px' }}>📋 Toplu İsim Yapıştır (Otomatik 1'den başlar)</h4>
+              <textarea
+                rows={3}
+                placeholder="Ali Yılmaz&#10;Ayşe Kaya&#10;Mehmet Demir"
+                value={bulkNames}
+                onChange={(e) => setBulkNames(e.target.value)}
+                className="input"
+                style={{ width: '100%', marginBottom: '8px', fontSize: '0.85rem' }}
+              />
+              <button onClick={handleBulkImport} className="btn btn-secondary" style={{ width: '100%' }}>
+                ⚡ Toplu Listeyi İçe Aktar
+              </button>
+            </div>
+
+            <div style={{ marginTop: '20px', textAlign: 'right' }}>
+              <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-primary">
+                Tamamla & Kaydet
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PrintableCardsModal
         isOpen={isPrintModalOpen}

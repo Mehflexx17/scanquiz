@@ -17,8 +17,21 @@ export default function SmartBoardPage() {
   const [questionStats, setQuestionStats] = useState(null);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(true);
+  const [studentRoster, setStudentRoster] = useState({}); // { [studentId]: 'Ali Yılmaz' }
 
   const pinTimerRef = useRef(null);
+
+  // Yerel roster yükle
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const savedRoster = localStorage.getItem('scanquiz_roster');
+        if (savedRoster) {
+          setStudentRoster(JSON.parse(savedRoster));
+        }
+      } catch (e) {}
+    }
+  }, []);
 
   // 1. PIN Üretimi ve 20 Saniyelik Dinamik Döngü (Session yokken)
   useEffect(() => {
@@ -109,6 +122,14 @@ export default function SmartBoardPage() {
       soundEffects.playReveal();
     });
 
+    // Roster (Öğrenci İsimleri) Güncellendiğinde
+    const unsubRoster = syncEngine.on('roster_updated', (roster) => {
+      setStudentRoster(roster || {});
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('scanquiz_roster', JSON.stringify(roster));
+      }
+    });
+
     // Sıfırla / Beklemeye Al
     const unsubReset = syncEngine.on('reset_question', () => {
       setActiveQuestion(null);
@@ -122,6 +143,7 @@ export default function SmartBoardPage() {
       unsubStart();
       unsubSubmit();
       unsubEnd();
+      unsubRoster();
       unsubReset();
     };
   }, []);
@@ -375,6 +397,7 @@ export default function SmartBoardPage() {
               <div className="student-grid" style={{ padding: 0 }}>
                 {Array.from(submissions.values()).map((sub) => {
                   const isRevealed = questionStatus === 'ENDED' && sub.status === 'REVEALED';
+                  const studentName = studentRoster[sub.studentId] || `Öğrenci #${sub.studentId}`;
 
                   return (
                     <div
@@ -386,9 +409,14 @@ export default function SmartBoardPage() {
                             : 'incorrect'
                           : 'submitted'
                       }`}
-                      style={{ minHeight: '90px' }}
+                      style={{ minHeight: '90px', padding: '12px 8px' }}
                     >
-                      <span className="card-id">#{sub.studentId}</span>
+                      <span className="card-id" style={{ fontSize: '1rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                        {studentName}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', opacity: 0.6, fontFamily: 'var(--font-mono)' }}>
+                        #{sub.studentId}
+                      </span>
                       {isRevealed ? (
                         <>
                           <span className="card-icon">{sub.isCorrect ? '✅' : '❌'}</span>

@@ -143,7 +143,8 @@
       <span class="badge badge-success" id="syncStatus">Yerel Mod Hazır</span>
     </div>
     <div style="display: flex; gap: 12px;">
-      <a href="tahta.html" target="_blank" class="btn" style="text-decoration: none;">📺 Tahtayı Aç (tahta.html)</a>
+      <button class="btn btn-primary" onclick="openRosterModal()">👥 Sınıf Listesi & İsimler</button>
+      <button class="btn" onclick="openBoardWindow()">📺 Tahtayı Aç (Yan Ekranda Bağla)</button>
     </div>
   </header>
 
@@ -208,25 +209,15 @@
 
         <!-- HIZLI SANAL ÖĞRENCİ SİMÜLATÖRÜ -->
         <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-          <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px;">
-            🧪 Test Amaçlı Sanal Öğrenci Kartı Tıklama Simülatörü:
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <div style="font-size: 0.8rem; color: var(--text-muted);">
+              🧪 Sanal Öğrenci Kartı Tıklama Simülatörü:
+            </div>
+            <button onclick="openRosterModal()" style="background: none; border: none; color: var(--accent-cyan); font-size: 0.75rem; cursor: pointer; text-decoration: underline;">
+              + Yeni İsim / Numara Ekle
+            </button>
           </div>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <script>
-              // 5 sanal öğrenci butonu
-              for (let i = 1; i <= 6; i++) {
-                document.write(`
-                  <div style="display:inline-flex; background:rgba(255,255,255,0.05); padding:4px 6px; border-radius:8px; gap:4px; font-size:0.75rem;">
-                    <span style="font-weight:700; align-self:center;">#${i}:</span>
-                    <button onclick="simResp(${i}, 'A')" style="background:#6c5ce7; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">A</button>
-                    <button onclick="simResp(${i}, 'B')" style="background:#00cec9; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">B</button>
-                    <button onclick="simResp(${i}, 'C')" style="background:#fd79a8; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">C</button>
-                    <button onclick="simResp(${i}, 'D')" style="background:#fdcb6e; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">D</button>
-                  </div>
-                `);
-              }
-            </script>
-          </div>
+          <div id="simButtonsWrap" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
         </div>
       </section>
     </div>
@@ -262,12 +253,73 @@
   </div>
 
   <script>
-    // --- HABERLEŞME HATTI (BroadcastChannel & LocalStorage) ---
-    const bus = new BroadcastChannel('scanquiz_local_sync');
+    // --- GÜÇLENDİRİLMİŞ HABERLEŞME HATTI (postMessage + BroadcastChannel + LocalStorage) ---
+    let bus = null;
+    let boardWindowRef = null;
+
+    try {
+      bus = new BroadcastChannel('scanquiz_local_sync');
+      bus.onmessage = (e) => onHostMessage(e.data);
+    } catch (e) {
+      console.warn('BroadcastChannel kullanılamıyor, fallback devrede');
+    }
+
+    // Doğrudan window.postMessage dinleyicisi
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.event) {
+        onHostMessage(e.data);
+      }
+    });
+
+    // LocalStorage dinleyicisi
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'scanquiz_bus_event' && e.newValue) {
+        try { onHostMessage(JSON.parse(e.newValue)); } catch (err) {}
+      }
+    });
+
     function sendEvent(event, payload) {
       const pkt = { event, payload, ts: Date.now() };
-      bus.postMessage(pkt);
-      localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
+
+      // 1. BroadcastChannel
+      if (bus) {
+        try { bus.postMessage(pkt); } catch (e) {}
+      }
+
+      // 2. LocalStorage
+      try {
+        localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
+      } catch (e) {}
+
+      // 3. Açık olan Tahta Penceresine doğrudan postMessage (file:// protokolünde %100 çalışır)
+      try {
+        if (boardWindowRef && !boardWindowRef.closed) {
+          boardWindowRef.postMessage(pkt, '*');
+        }
+      } catch (e) {}
+    }
+
+    function onHostMessage(data) {
+      if (!data || !data.event) return;
+      const { event, payload } = data;
+
+      if (event === 'board_ack') {
+        document.getElementById('syncStatus').innerText = 'Tahtaya Bağlandı ✅';
+        document.getElementById('syncStatus').className = 'badge badge-success';
+      }
+      else if (event === 'pin_rotated') {
+        if (!document.getElementById('pinInput').value) {
+          document.getElementById('pinInput').value = payload.pin;
+        }
+      }
+    }
+
+    // Tahta Penceresini Güvenli Aç ve Referansı Sakla
+    function openBoardWindow() {
+      boardWindowRef = window.open('tahta.html', 'ScanQuizTahta');
+      setTimeout(() => {
+        autoPairLocal();
+      }, 800);
     }
 
     // --- SORULAR LİSTESİ ---
@@ -419,6 +471,94 @@
       });
     }
 
+    // --- ÖĞRENCİ LİSTESİ / ROSTER YÖNETİMİ ---
+    let roster = JSON.parse(localStorage.getItem('scanquiz_roster') || '{"1":"Ali Yılmaz","2":"Ayşe Kaya","3":"Mehmet Demir","4":"Zeynep Bal","5":"Can Sarı"}');
+
+    function saveRoster() {
+      localStorage.setItem('scanquiz_roster', JSON.stringify(roster));
+      sendEvent('roster_updated', roster);
+      renderRosterList();
+      renderTeacherGrid();
+      renderSimulatorButtons();
+    }
+
+    function openRosterModal() {
+      document.getElementById('rosterModal').style.display = 'flex';
+      renderRosterList();
+    }
+
+    function closeRosterModal() {
+      document.getElementById('rosterModal').style.display = 'none';
+    }
+
+    function renderRosterList() {
+      const wrap = document.getElementById('rosterListWrap');
+      wrap.innerHTML = '';
+      const entries = Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b));
+      document.getElementById('rosterCount').innerText = entries.length;
+
+      entries.forEach(([sId, sName]) => {
+        const item = document.createElement('div');
+        item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid var(--border);';
+        item.innerHTML = `
+          <div><strong style="color:var(--accent-cyan);">#${sId}</strong> ${sName}</div>
+          <button onclick="removeRosterItem('${sId}')" style="background:none; border:none; color:var(--danger); font-size:1rem; cursor:pointer;">✕</button>
+        `;
+        wrap.appendChild(item);
+      });
+    }
+
+    function addRosterItem() {
+      const id = parseInt(document.getElementById('newStudId').value.trim(), 10);
+      const name = document.getElementById('newStudName').value.trim();
+      if (!id || !name) return;
+
+      roster[id] = name;
+      saveRoster();
+      document.getElementById('newStudId').value = '';
+      document.getElementById('newStudName').value = '';
+    }
+
+    function removeRosterItem(id) {
+      delete roster[id];
+      saveRoster();
+    }
+
+    function bulkImportRoster() {
+      const text = document.getElementById('bulkRosterText').value.trim();
+      if (!text) return;
+      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      lines.forEach((n, idx) => {
+        roster[idx + 1] = n;
+      });
+      saveRoster();
+      document.getElementById('bulkRosterText').value = '';
+      alert(`${lines.length} öğrenci listeye eklendi!`);
+    }
+
+    function renderSimulatorButtons() {
+      const wrap = document.getElementById('simButtonsWrap');
+      if (!wrap) return;
+      wrap.innerHTML = '';
+      const ids = Object.keys(roster).length > 0 ? Object.keys(roster).slice(0, 8) : ['1', '2', '3', '4', '5'];
+
+      ids.forEach(sId => {
+        const sName = roster[sId] || `Öğrenci #${sId}`;
+        const div = document.createElement('div');
+        div.style.cssText = 'display:inline-flex; flex-direction:column; background:rgba(255,255,255,0.05); padding:6px 8px; border-radius:8px; gap:4px; font-size:0.75rem;';
+        div.innerHTML = `
+          <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:90px;" title="${sName}">#${sId} ${sName}</div>
+          <div style="display:flex; gap:3px;">
+            <button onclick="simResp(${sId}, 'A')" style="background:#6c5ce7; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">A</button>
+            <button onclick="simResp(${sId}, 'B')" style="background:#00cec9; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">B</button>
+            <button onclick="simResp(${sId}, 'C')" style="background:#fd79a8; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">C</button>
+            <button onclick="simResp(${sId}, 'D')" style="background:#fdcb6e; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">D</button>
+          </div>
+        `;
+        wrap.appendChild(div);
+      });
+    }
+
     function renderTeacherGrid() {
       const wrap = document.getElementById('teacherGrid');
       document.getElementById('teacherRespCount').innerText = teacherResponses.size;
@@ -430,13 +570,14 @@
       const q = questions[currentIdx];
       teacherResponses.forEach((choice, sId) => {
         const isCorr = q && choice === q.correctAnswer;
+        const sName = roster[sId] || `Öğrenci #${sId}`;
         const b = document.createElement('div');
         b.style.padding = '8px';
         b.style.borderRadius = '8px';
         b.style.background = 'rgba(255,255,255,0.05)';
         b.style.border = '1px solid ' + (isCorr ? 'var(--success)' : 'rgba(255,255,255,0.1)');
         b.style.textAlign = 'center';
-        b.innerHTML = `<div style="font-weight:700; font-size:0.8rem;">#${sId}</div><div style="font-size:1.1rem; font-weight:900; color:${isCorr ? 'var(--success)' : 'var(--danger)'};">${choice}</div>`;
+        b.innerHTML = `<div style="font-weight:700; font-size:0.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${sName}</div><div style="font-size:0.7rem; opacity:0.6;">#${sId}</div><div style="font-size:1.1rem; font-weight:900; color:${isCorr ? 'var(--success)' : 'var(--danger)'};">${choice}</div>`;
         wrap.appendChild(b);
       });
     }
@@ -515,8 +656,47 @@
       document.getElementById('fileStatus').innerText = '✅ 4 adet demo soru yüklendi.';
     }
 
+  <!-- Sınıf Listesi & İsim Eşleme Modalı -->
+  <div id="rosterModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
+    <div style="background: #161622; border: 1px solid var(--border); border-radius: 18px; max-width: 600px; width: 100%; padding: 24px; max-height: 90vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div>
+          <h2 style="font-size: 1.3rem; font-weight: 800;">👥 Sınıf Listesi & İsim Eşleme</h2>
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Kart numaralarına öğrenci isimleri verin. Tahtada isimler görünür.</p>
+        </div>
+        <button onclick="closeRosterModal()" style="background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer;">✕</button>
+      </div>
+
+      <!-- Yeni Öğrenci Ekle -->
+      <div style="display: flex; gap: 8px; margin-bottom: 16px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px;">
+        <input type="number" id="newStudId" placeholder="No (Örn: 6)" style="width: 100px;">
+        <input type="text" id="newStudName" placeholder="Öğrenci Adı Soyadı" style="flex: 1;">
+        <button class="btn btn-success" onclick="addRosterItem()">+ Ekle</button>
+      </div>
+
+      <!-- Liste -->
+      <div style="margin-bottom: 20px;">
+        <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 8px;">Kayıtlı Öğrenciler (<span id="rosterCount">0</span>)</div>
+        <div id="rosterListWrap" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 200px; overflow-y: auto;"></div>
+      </div>
+
+      <!-- Toplu Ekleme -->
+      <div style="border-top: 1px solid var(--border); padding-top: 12px; margin-bottom: 16px;">
+        <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 4px;">📋 Toplu İsim Yapıştır (Satır satır):</div>
+        <textarea id="bulkRosterText" rows="3" placeholder="Ali Yılmaz&#10;Ayşe Kaya&#10;Mehmet Demir" style="width: 100%; margin-bottom: 8px; font-size: 0.8rem;"></textarea>
+        <button class="btn" style="width: 100%; font-size: 0.85rem;" onclick="bulkImportRoster()">⚡ Toplu Listeyi Aktar</button>
+      </div>
+
+      <div style="text-align: right;">
+        <button class="btn btn-primary" onclick="closeRosterModal()">Tamamla & Kaydet</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
     // İlk çalıştırma
     renderQuestionsList();
+    renderSimulatorButtons();
     setTimeout(autoPairLocal, 500);
   </script>
 </body>

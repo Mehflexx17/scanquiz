@@ -394,21 +394,69 @@
       } catch (e) {}
     }
 
-    // --- YEREL VE SEKMELER ARASI HABERLEŞME (BroadcastChannel & LocalStorage) ---
-    const bus = new BroadcastChannel('scanquiz_local_sync');
+    // --- GÜÇLENDİRİLMİŞ HABERLEŞME HATTI (postMessage + BroadcastChannel + LocalStorage) ---
+    let bus = null;
+    try {
+      bus = new BroadcastChannel('scanquiz_local_sync');
+      bus.onmessage = (e) => onMessage(e.data);
+    } catch (e) {
+      console.warn('BroadcastChannel kullanılamıyor, fallback devrede');
+    }
+
+    // Doğrudan window postMessage dinleyicisi (file:// altında bile %100 çalışır)
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.event) {
+        onMessage(e.data);
+      }
+    });
+
+    // LocalStorage dinleyicisi
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'scanquiz_bus_event' && e.newValue) {
+        try { onMessage(JSON.parse(e.newValue)); } catch (err) {}
+      }
+    });
+
     function sendEvent(event, payload) {
       const pkt = { event, payload, ts: Date.now() };
-      bus.postMessage(pkt);
-      localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
+      
+      // 1. BroadcastChannel
+      if (bus) {
+        try { bus.postMessage(pkt); } catch (e) {}
+      }
+
+      // 2. LocalStorage
+      try {
+        localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
+      } catch (e) {}
+
+      // 3. Opener veya Parent pencere varsa doğrudan ilet
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage(pkt, '*');
+        }
+      } catch (e) {}
     }
+
+    let currentQuestion = null;
+    const submissions = new Map();
+    let studentRoster = JSON.parse(localStorage.getItem('scanquiz_roster') || '{"1":"Ali Y.","2":"Ayşe K.","3":"Mehmet D.","4":"Zeynep B.","5":"Can S."}');
 
     function onMessage(data) {
       if (!data || !data.event) return;
       const { event, payload } = data;
 
-      if (event === 'host_paired') {
+      if (event === 'host_paired' || event === 'ping_host') {
         document.getElementById('connStatus').innerText = 'Kumanda Bağlandı ✅';
+        document.getElementById('connStatus').style.color = '#00b894';
         playBeep(880, 'sine', 0.15);
+
+        // Host'a teyit gönder
+        sendEvent('board_ack', { pin: currentPin });
+      }
+      else if (event === 'roster_updated') {
+        studentRoster = payload || {};
+        localStorage.setItem('scanquiz_roster', JSON.stringify(studentRoster));
       }
       else if (event === 'start_question') {
         showQuestion(payload);
@@ -427,13 +475,6 @@
         resetToIdle();
       }
     }
-
-    bus.onmessage = (e) => onMessage(e.data);
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'scanquiz_bus_event' && e.newValue) {
-        try { onMessage(JSON.parse(e.newValue)); } catch (err) {}
-      }
-    });
 
     // --- 20 SANİYELİK DİNAMİK PIN SİSTEMİ ---
     let currentPin = '';
@@ -500,11 +541,12 @@
       submissions.set(studentId, { status: 'SUBMITTED' });
 
       document.getElementById('respCount').innerText = submissions.size;
+      const sName = studentRoster[studentId] || `Öğrenci #${studentId}`;
 
       const badge = document.createElement('div');
       badge.id = 'stud-' + studentId;
       badge.className = 'student-badge';
-      badge.innerHTML = `<div>#${studentId}</div><div style="font-size:0.75rem;margin-top:2px;">🎴 Gönderildi</div>`;
+      badge.innerHTML = `<div style="font-size:0.95rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sName}</div><div style="font-size:0.75rem;opacity:0.7;">#${studentId} 🎴 Gönderildi</div>`;
       document.getElementById('studentGrid').appendChild(badge);
     }
 
@@ -541,8 +583,9 @@
           const el = document.getElementById('stud-' + sId);
           if (el) {
             const isCorr = choice === data.correctAnswer;
+            const sName = studentRoster[sId] || `Öğrenci #${sId}`;
             el.className = 'student-badge ' + (isCorr ? 'revealed-correct' : 'revealed-wrong');
-            el.innerHTML = `<div>#${sId}</div><div style="font-size:1.1rem;font-weight:900;">${choice} ${isCorr ? '✅' : '❌'}</div>`;
+            el.innerHTML = `<div style="font-size:0.95rem;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${sName}</div><div style="font-size:1.1rem;font-weight:900;margin-top:2px;">${choice} ${isCorr ? '✅' : '❌'}</div>`;
           }
         });
       }
