@@ -7,60 +7,41 @@ import { parseQuizFile } from '@/lib/file-parser';
 import { soundEffects } from '@/lib/sound-effects';
 import PrintableCardsModal from '@/components/PrintableCardsModal';
 
-// Varsayılan hazır sorular
 const DEFAULT_QUESTIONS = [
   {
     id: 1,
     text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?',
-    options: {
-      A: '1919',
-      B: '1920',
-      C: '1923',
-      D: '1938'
-    },
-    correctAnswer: 'C',
-    durationSec: 45
+    options: { A: '1919', B: '1920', C: '1923', D: '1938' },
+    correctAnswer: 'C'
   },
   {
     id: 2,
     text: 'Güneş sistemindeki en büyük gezegen hangisidir?',
-    options: {
-      A: 'Mars',
-      B: 'Jüpiter',
-      C: 'Satürn',
-      D: 'Dünya'
-    },
-    correctAnswer: 'B',
-    durationSec: 45
+    options: { A: 'Mars', B: 'Jüpiter', C: 'Satürn', D: 'Dünya' },
+    correctAnswer: 'B'
   },
   {
     id: 3,
     text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?',
-    options: {
-      A: 'H2O',
-      B: 'CO2',
-      C: 'NaCl',
-      D: 'O2'
-    },
-    correctAnswer: 'A',
-    durationSec: 30
+    options: { A: 'H2O', B: 'CO2', C: 'NaCl', D: 'O2' },
+    correctAnswer: 'A'
   }
 ];
 
 export default function HostControlPage() {
+  // ⚠️ KOD OTONOM DOLDURULMAZ — KUTU BOŞ BAŞLAR
   const [targetPin, setTargetPin] = useState('');
   const [isPaired, setIsPaired] = useState(false);
   const [questions, setQuestions] = useState(DEFAULT_QUESTIONS);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeQuestion, setActiveQuestion] = useState(null);
-  const [questionState, setQuestionState] = useState('IDLE'); // 'IDLE', 'RUNNING', 'ENDED'
-  const [submissions, setSubmissions] = useState(new Map()); // studentId -> { choice, time }
+  const [questionState, setQuestionState] = useState('IDLE'); // 'IDLE' | 'RUNNING' | 'ENDED'
+  const [submissions, setSubmissions] = useState(new Map());
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState('');
-  const [isDragOver, setIsDragOver] = useState(false);
 
-  // Öğrenci Listesi / İsim Eşleme (Varsayılan liste)
+  // Sınıf Listesi
   const [roster, setRoster] = useState({
     1: 'Ali Yılmaz',
     2: 'Ayşe Kaya',
@@ -84,16 +65,109 @@ export default function HostControlPage() {
     }
   }, []);
 
+  // Öğrenci tarama verilerini dinle
+  useEffect(() => {
+    const unsubScan = syncEngine.on('student_scanned_raw', (payload) => {
+      if (questionState === 'RUNNING') {
+        handleStudentResponse(payload.studentId, payload.choice);
+      }
+    });
+
+    return () => unsubScan();
+  }, [questionState, activeQuestion]);
+
+  // Öğretmen tahtadaki kodu elle girip bağlandığında
+  const handlePair = (e) => {
+    if (e) e.preventDefault();
+    const cleanPin = targetPin.trim();
+    if (!cleanPin || cleanPin.length < 4) {
+      alert('Lütfen tahtada görünen geçerli bir PIN kodu girin.');
+      return;
+    }
+
+    syncEngine.setRoom(cleanPin);
+    syncEngine.emit('host_paired', { pin: cleanPin });
+    setIsPaired(true);
+    soundEffects.playSubmit();
+  };
+
+  const handleStudentResponse = (studentId, choice) => {
+    setSubmissions((prev) => {
+      const next = new Map(prev);
+      next.set(studentId, { choice, time: Date.now() });
+      return next;
+    });
+
+    // Tahtaya şıksız yayın
+    syncEngine.emit('student_submitted', {
+      studentId,
+      status: 'SUBMITTED'
+    });
+
+    soundEffects.playSubmit();
+  };
+
+  const handleStartQuestion = (idx = currentIndex) => {
+    const q = questions[idx];
+    if (!q) return;
+
+    setActiveQuestion(q);
+    setQuestionState('RUNNING');
+    setSubmissions(new Map());
+
+    syncEngine.emit('start_question', q);
+    soundEffects.playReveal();
+  };
+
+  const handleEndQuestion = () => {
+    if (!activeQuestion) return;
+
+    setQuestionState('ENDED');
+    const stats = { A: 0, B: 0, C: 0, D: 0 };
+    const rawResults = {};
+
+    submissions.forEach((val, studentId) => {
+      rawResults[studentId] = val.choice;
+      if (stats[val.choice] !== undefined) stats[val.choice]++;
+    });
+
+    syncEngine.emit('end_question', {
+      questionId: activeQuestion.id,
+      correctAnswer: activeQuestion.correctAnswer,
+      results: rawResults,
+      stats
+    });
+
+    soundEffects.playReveal();
+  };
+
+  const handleNextQuestion = () => {
+    if (currentIndex + 1 < questions.length) {
+      const nextIdx = currentIndex + 1;
+      setCurrentIndex(nextIdx);
+      handleStartQuestion(nextIdx);
+    } else {
+      handleResetBoard();
+    }
+  };
+
+  const handleResetBoard = () => {
+    setQuestionState('IDLE');
+    setActiveQuestion(null);
+    setSubmissions(new Map());
+    syncEngine.emit('reset_question', {});
+  };
+
+  // Roster Güncellemeleri
   const saveRoster = (newRoster) => {
     setRoster(newRoster);
     if (typeof window !== 'undefined') {
       localStorage.setItem('scanquiz_roster', JSON.stringify(newRoster));
     }
     syncEngine.emit('roster_updated', newRoster);
-    soundEffects.playSubmit();
   };
 
-  const addOrUpdateStudent = () => {
+  const addStudent = () => {
     const id = parseInt(newStudentId, 10);
     const name = newStudentName.trim();
     if (!id || !name) return;
@@ -120,222 +194,99 @@ export default function HostControlPage() {
     });
     saveRoster(updated);
     setBulkNames('');
-    alert(`${lines.length} adet öğrenci listeye kaydedildi!`);
+    alert(`${lines.length} adet öğrenci eklendi.`);
   };
 
-  // Yerel Tahta PIN'ini otomatik algıla
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedPin = localStorage.getItem('scanquiz_active_pin');
-      if (savedPin) {
-        setTargetPin(savedPin);
-        handlePairWithPin(savedPin);
-      }
-    }
-  }, []);
-
-  // Öğrenci tarama verilerini dinle
-  useEffect(() => {
-    const unsubScan = syncEngine.on('student_scanned_raw', (payload) => {
-      // payload: { studentId: number, choice: 'A'|'B'|'C'|'D' }
-      if (questionState === 'RUNNING') {
-        handleStudentResponse(payload.studentId, payload.choice);
-      }
-    });
-
-    return () => {
-      unsubScan();
-    };
-  }, [questionState, activeQuestion]);
-
-  const handlePairWithPin = (pinToUse) => {
-    const pin = pinToUse || targetPin;
-    if (!pin) return;
-    syncEngine.setRoom(pin);
-    syncEngine.emit('host_paired', { pin });
-    setIsPaired(true);
-    soundEffects.playSubmit();
-  };
-
-  // Öğrenci yanıtı işleme
-  const handleStudentResponse = (studentId, choice) => {
-    setSubmissions((prev) => {
-      const next = new Map(prev);
-      next.set(studentId, { choice, time: Date.now() });
-      return next;
-    });
-
-    // Tahtaya SADECE 'SUBMITTED' bilgisini yayınla (Anti-Cheat)
-    syncEngine.emit('student_submitted', {
-      studentId: studentId,
-      status: 'SUBMITTED'
-    });
-
-    soundEffects.playSubmit();
-  };
-
-  // Soruyu Başlat
-  const handleStartQuestion = (indexToStart = currentIndex) => {
-    const q = questions[indexToStart];
-    if (!q) return;
-
-    setActiveQuestion(q);
-    setQuestionState('RUNNING');
-    setSubmissions(new Map());
-
-    syncEngine.emit('start_question', q);
-    soundEffects.playReveal();
-  };
-
-  // Soruyu Bitir ve Cevapları Tahtaya Aç
-  const handleEndQuestion = () => {
-    if (!activeQuestion) return;
-
-    setQuestionState('ENDED');
-
-    // İstatistikleri hesapla
-    const stats = { A: 0, B: 0, C: 0, D: 0 };
-    const rawResults = {};
-
-    submissions.forEach((val, studentId) => {
-      rawResults[studentId] = val.choice;
-      if (stats[val.choice] !== undefined) {
-        stats[val.choice]++;
-      }
-    });
-
-    // Tahtaya tüm sonuçları aç
-    syncEngine.emit('end_question', {
-      questionId: activeQuestion.id,
-      correctAnswer: activeQuestion.correctAnswer,
-      results: rawResults,
-      stats: stats
-    });
-
-    soundEffects.playReveal();
-  };
-
-  // Sıradaki Soruya Geç
-  const handleNextQuestion = () => {
-    if (currentIndex + 1 < questions.length) {
-      const nextIdx = currentIndex + 1;
-      setCurrentIndex(nextIdx);
-      handleStartQuestion(nextIdx);
-    } else {
-      handleResetBoard();
-    }
-  };
-
-  // Tahtayı Boşalt
-  const handleResetBoard = () => {
-    setQuestionState('IDLE');
-    setActiveQuestion(null);
-    setSubmissions(new Map());
-    syncEngine.emit('reset_question', {});
-  };
-
-  // PDF / Excel Dosyası Yükleme İşleyicisi
   const handleFileUpload = async (file) => {
     if (!file) return;
-    setImportStatus('Dosya inceleniyor ve sorular ayıklanıyor...');
+    setImportStatus('Dosya işleniyor...');
 
     try {
       const parsed = await parseQuizFile(file);
       if (parsed && parsed.length > 0) {
         setQuestions(parsed);
         setCurrentIndex(0);
-        setImportStatus(`✅ Başarılı! ${parsed.length} adet soru içe aktarıldı.`);
+        setImportStatus(`✓ ${parsed.length} soru aktarıldı.`);
         soundEffects.playReveal();
       } else {
-        setImportStatus('⚠️ Dosyadan soru ayrıştırılamadı. Format: Soru;A;B;C;D;Cevap olmalıdır.');
+        setImportStatus('Dosyadan soru okunamadı.');
       }
     } catch (err) {
-      setImportStatus(`❌ Hata: ${err.message}`);
+      setImportStatus('Hata: ' + err.message);
     }
   };
 
-  // Simülatör: Test amaçlı sanal öğrenci yanıtı üretme
-  const simulateAnswer = (studentId, choice) => {
-    handleStudentResponse(studentId, choice);
-  };
-
   return (
-    <main className="page-container" style={{ maxWidth: '1200px', margin: '0 auto' }}>
-      {/* Üst Bar */}
-      <header className="page-header" style={{ borderRadius: '16px', marginBottom: '24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <div className="logo" style={{ fontSize: '1.4rem' }}>
-            <span>🎮 ScanQuiz Kumandası</span>
-          </div>
-          <span className="badge badge-success" style={{ fontSize: '0.8rem' }}>
-            {isPaired ? `Eşleşti (PIN: ${targetPin})` : 'Yerel Bağlantı Hazır'}
+    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
+      {/* Üst Çubuk */}
+      <header className="panel panel-header" style={{ marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <span style={{ fontWeight: 800, fontSize: '1.2rem', letterSpacing: '-0.02em' }}>
+            ScanQuiz Kumanda
+          </span>
+          <span className={`badge ${isPaired ? 'badge-success' : 'badge-warning'}`}>
+            {isPaired ? `Oda: ${targetPin}` : 'Eşleşme Bekleniyor'}
           </span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => setIsRosterModalOpen(true)} className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-            👥 Sınıf Listesi & İsimler
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => setIsRosterModalOpen(true)} className="btn btn-sm">
+            Öğrenci Listesi
           </button>
-          <Link href="/" target="_blank" className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-            📺 Tahtayı Aç (Sekmede)
-          </Link>
-          <Link href="/ogretmen" className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-            📷 Mobil Kamera
-          </Link>
-          <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.85rem' }}>
-            🖨️ Kartları Yazdır
+          <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-sm">
+            Kartları Yazdır
           </button>
+          <Link href="/ogretmen" className="btn btn-sm btn-primary">
+            Mobil Kamera
+          </Link>
         </div>
       </header>
 
-      {/* PIN Bağlantı Kutusu */}
+      {/* PIN Eşleşme Alanı (Otonom doldurma KALDIRILDI) */}
       {!isPaired && (
-        <section className="glass-card" style={{ padding: '24px', marginBottom: '24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: '240px' }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '4px' }}>Akıllı Tahta PIN Kodu</h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Tahtada (/) görünen 6 haneli kodu yazın veya yerel eşleşmeyi kullanın.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="text"
-              placeholder="123456"
-              maxLength={6}
-              value={targetPin}
-              onChange={(e) => setTargetPin(e.target.value)}
-              className="input"
-              style={{ width: '130px', textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '1.2rem', letterSpacing: '0.1em' }}
-            />
-            <button onClick={() => handlePairWithPin()} className="btn btn-primary">
-              Bağlan
-            </button>
-            <button onClick={() => handlePairWithPin(localStorage.getItem('scanquiz_active_pin'))} className="btn btn-secondary">
-              ⚡ Otomatik Yerel Eşle
-            </button>
-          </div>
+        <section className="panel" style={{ padding: '24px', marginBottom: '20px' }}>
+          <form onSubmit={handlePair} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '16px' }}>
+            <div>
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Tahta Bağlantısı</h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+                Akıllı tahtanın ekranında gördüğünüz 6 haneli katılım kodunu girin.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Örn: 482910"
+                maxLength={6}
+                value={targetPin}
+                onChange={(e) => setTargetPin(e.target.value.replace(/\D/g, ''))}
+                className="input"
+                style={{ width: '140px', fontFamily: 'var(--font-mono)', fontSize: '1.1rem', textAlign: 'center' }}
+                autoFocus
+              />
+              <button type="submit" className="btn btn-primary">
+                Tahtaya Bağlan
+              </button>
+            </div>
+          </form>
         </section>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '24px' }}>
-        {/* Sol Kolon: Canlı Kontrol Kumandası */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Aktif Soru Kontrol Paneli */}
-          <section className="glass-card" style={{ padding: '24px' }}>
+      {/* Ana Çalışma Alanı */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '20px' }}>
+        {/* Sol Kolon: Aktif Soru Kontrolleri */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <section className="panel" style={{ padding: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <span className="badge badge-info">
-                Soru {currentIndex + 1} / {questions.length}
-              </span>
+              <span className="badge badge-info">Soru {currentIndex + 1} / {questions.length}</span>
               <span className={`badge ${questionState === 'RUNNING' ? 'badge-warning' : questionState === 'ENDED' ? 'badge-success' : 'badge-info'}`}>
-                Durum: {questionState === 'RUNNING' ? '▶ Soru Tahtada Aktif' : questionState === 'ENDED' ? '⏹ Cevaplar Açıklandı' : 'Beklemede'}
+                {questionState === 'RUNNING' ? 'Yayında' : questionState === 'ENDED' ? 'Cevaplar Açıklandı' : 'Hazır'}
               </span>
             </div>
 
-            {/* Mevcut Soru Metni */}
-            <div style={{ background: 'var(--bg-secondary)', padding: '20px', borderRadius: '12px', marginBottom: '20px', border: '1px solid var(--bg-glass-border)' }}>
-              <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '16px' }}>
-                {questions[currentIndex]?.text || 'Soru bulunamadı'}
-              </h2>
+            <div style={{ background: '#0e1017', padding: '18px', borderRadius: '10px', marginBottom: '20px', border: '1px solid var(--border-subtle)' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '16px' }}>
+                {questions[currentIndex]?.text}
+              </h3>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                 {['A', 'B', 'C', 'D'].map((opt) => {
@@ -344,107 +295,109 @@ export default function HostControlPage() {
                     <div
                       key={opt}
                       style={{
-                        padding: '10px 14px',
+                        padding: '10px 12px',
                         borderRadius: '8px',
-                        background: isCorrect ? 'rgba(0, 184, 148, 0.2)' : 'var(--bg-card)',
-                        border: isCorrect ? '1px solid var(--success)' : '1px solid rgba(255,255,255,0.05)',
+                        background: isCorrect ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.03)',
+                        border: isCorrect ? '1px solid var(--success)' : '1px solid transparent',
                         fontSize: '0.9rem',
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px'
                       }}
                     >
-                      <strong style={{ color: isCorrect ? 'var(--success)' : 'var(--accent-secondary)' }}>{opt}:</strong>
+                      <strong style={{ color: isCorrect ? 'var(--success)' : 'var(--text-muted)' }}>{opt}:</strong>
                       <span>{questions[currentIndex]?.options?.[opt] || '-'}</span>
-                      {isCorrect && <span style={{ marginLeft: 'auto', fontSize: '0.8rem' }}>✅ (Doğru)</span>}
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Buton Kontrolleri */}
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
               {questionState !== 'RUNNING' ? (
                 <button onClick={() => handleStartQuestion()} className="btn btn-success" style={{ flex: 1 }}>
-                  ▶ Soruyu Tahtada Başlat
+                  Soruyu Tahtada Başlat
                 </button>
               ) : (
                 <button onClick={handleEndQuestion} className="btn btn-danger" style={{ flex: 1 }}>
-                  ⏹ Soruyu Bitir & Cevapları Açıkla
+                  Soruyu Bitir (Cevapları Açıkla)
                 </button>
               )}
 
               <button
                 onClick={handleNextQuestion}
                 disabled={currentIndex + 1 >= questions.length}
-                className="btn btn-primary"
+                className="btn"
               >
-                ⏭ Sıradaki Soru
+                Sıradaki Soru
               </button>
 
-              <button onClick={handleResetBoard} className="btn btn-secondary">
-                🔄 Sıfırla
+              <button onClick={handleResetBoard} className="btn">
+                Sıfırla
               </button>
             </div>
           </section>
 
-          {/* Öğretmene Özel Canlı Cevap Tablosu (Öğretmen kimin ne dediğini canlı görür!) */}
-          <section className="glass-card" style={{ padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          {/* Öğretmene Özel Canlı Akış */}
+          <section className="panel" style={{ padding: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
               <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>👨‍🏫 Öğretmene Özel Canlı Akış</h3>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                  Tahtada şıklar gizlidir fakat siz kimin hangi şıkkı verdiğini buradan canlı takip edebilirsiniz.
+                <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Canlı Yanıtlar (Öğretmen Görünümü)</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Tahtada şıklar gizlidir fakat kimin ne dediğini buradan anlık görebilirsiniz.
                 </p>
               </div>
-              <span className="badge badge-info">{submissions.size} Öğrenci</span>
+              <span className="badge badge-info">{submissions.size} Katılımcı</span>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
               {Array.from(submissions.entries()).map(([studentId, data]) => {
                 const isCorrect = activeQuestion && data.choice === activeQuestion.correctAnswer;
+                const sName = roster[studentId] || `Öğrenci #${studentId}`;
+
                 return (
                   <div
                     key={studentId}
                     style={{
                       padding: '8px',
                       borderRadius: '8px',
-                      background: 'var(--bg-secondary)',
-                      border: `1px solid ${isCorrect ? 'var(--success)' : 'rgba(255,255,255,0.1)'}`,
-                      textAlign: 'center',
-                      fontSize: '0.85rem'
+                      background: '#0e1017',
+                      border: `1px solid ${isCorrect ? 'var(--success)' : 'var(--border-subtle)'}`,
+                      textAlign: 'center'
                     }}
                   >
-                    <div style={{ fontWeight: 700 }}>#{studentId}</div>
-                    <div style={{ fontSize: '1.1rem', fontWeight: 900, color: isCorrect ? 'var(--success)' : 'var(--danger)' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {sName}
+                    </div>
+                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: isCorrect ? 'var(--success)' : 'var(--danger)', marginTop: '2px' }}>
                       {data.choice}
                     </div>
                   </div>
                 );
               })}
+
               {submissions.size === 0 && (
-                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '20px', color: 'var(--text-muted)' }}>
-                  Henüz gelen yanıt yok. Kamera veya aşağıdaki simülatör ile yanıt gönderilebilir.
+                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '24px', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+                  Henüz gelen yanıt yok. Kamera veya aşağıdaki simülatör butonlarıyla test edebilirsiniz.
                 </div>
               )}
             </div>
 
-            {/* Test Amaçlı Hızlı Simülatör (Öğrenci Kartı Yokken Test Etmek İçin) */}
-            <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--bg-glass-border)' }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                🧪 Kamera olmadan test etmek için hızlı öğrenci simülatörü:
+            {/* Simülatör Butonları */}
+            <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-dim)', marginBottom: '8px' }}>
+                Test Simülatörü:
               </div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {[1, 2, 3, 4, 5].map((sId) => (
-                  <div key={sId} style={{ display: 'inline-flex', background: 'var(--bg-card)', padding: '4px', borderRadius: '8px', gap: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', alignSelf: 'center', paddingLeft: '4px' }}>#{sId}:</span>
+                {Object.keys(roster).slice(0, 6).map((sId) => (
+                  <div key={sId} style={{ display: 'inline-flex', background: '#0e1017', padding: '4px 6px', borderRadius: '6px', gap: '4px' }}>
+                    <span style={{ fontSize: '0.75rem', alignSelf: 'center', color: 'var(--text-muted)' }}>#{sId}:</span>
                     {['A', 'B', 'C', 'D'].map((ch) => (
                       <button
                         key={ch}
-                        onClick={() => simulateAnswer(sId, ch)}
+                        onClick={() => handleStudentResponse(parseInt(sId), ch)}
                         style={{
-                          background: 'rgba(255,255,255,0.08)',
+                          background: 'rgba(255,255,255,0.06)',
                           border: 'none',
                           color: '#fff',
                           borderRadius: '4px',
@@ -463,29 +416,14 @@ export default function HostControlPage() {
           </section>
         </div>
 
-        {/* Sağ Kolon: PDF / Excel İçe Aktarma & Soru Listesi */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Dosya Yükleme Kutusu */}
-          <section
-            className="glass-card"
-            style={{
-              padding: '24px',
-              border: isDragOver ? '2px dashed var(--accent-primary)' : '1px solid var(--bg-glass-border)',
-              background: isDragOver ? 'rgba(108, 92, 231, 0.05)' : 'var(--bg-glass)'
-            }}
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOver(false);
-              if (e.dataTransfer.files?.[0]) handleFileUpload(e.dataTransfer.files[0]);
-            }}
-          >
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px' }}>
-              📄 PDF veya Excel / CSV Yükle
+        {/* Sağ Kolon: PDF/Excel Yükleme & Soru Havuzu */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <section className="panel" style={{ padding: '20px' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '4px' }}>
+              Soru İçe Aktar (PDF / Excel / CSV)
             </h3>
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-              Sorularınızı içeren PDF, Excel (.xlsx) veya CSV dosyasını sürükleyip bırakın veya seçin.
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              Sorularınızı içeren dosyayı seçin.
             </p>
 
             <input
@@ -498,38 +436,32 @@ export default function HostControlPage() {
               }}
             />
 
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="btn btn-primary"
-                style={{ flex: 1, padding: '10px' }}
-              >
-                📁 Dosya Seç (.pdf / .xlsx / .csv)
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => fileInputRef.current?.click()} className="btn btn-sm btn-primary" style={{ flex: 1 }}>
+                Dosya Seç (.pdf / .xlsx / .csv)
               </button>
               <button
                 onClick={() => { setQuestions(DEFAULT_QUESTIONS); setCurrentIndex(0); setImportStatus('Demo sorular yüklendi.'); }}
-                className="btn btn-secondary"
-                style={{ padding: '10px' }}
-                title="Varsayılan Demo Soruları Yükle"
+                className="btn btn-sm"
               >
-                Örnek Yükle
+                Örnek Sorular
               </button>
             </div>
 
             {importStatus && (
-              <div style={{ marginTop: '12px', fontSize: '0.85rem', color: importStatus.includes('✅') ? 'var(--success)' : 'var(--warning)' }}>
+              <div style={{ marginTop: '10px', fontSize: '0.8rem', color: importStatus.includes('✓') ? 'var(--success)' : 'var(--warning)' }}>
                 {importStatus}
               </div>
             )}
           </section>
 
-          {/* Yüklenmiş Soru Listesi */}
-          <section className="glass-card" style={{ padding: '24px', flex: 1 }}>
-            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px' }}>
-              📋 Soru Havuzu ({questions.length} Soru)
+          {/* Soru Listesi */}
+          <section className="panel" style={{ padding: '20px', flex: 1 }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '12px' }}>
+              Soru Havuzu ({questions.length})
             </h3>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '420px', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto' }}>
               {questions.map((q, idx) => {
                 const isSelected = idx === currentIndex;
                 return (
@@ -537,23 +469,18 @@ export default function HostControlPage() {
                     key={q.id || idx}
                     onClick={() => setCurrentIndex(idx)}
                     style={{
-                      padding: '12px 16px',
-                      borderRadius: '10px',
-                      background: isSelected ? 'rgba(108, 92, 231, 0.15)' : 'var(--bg-secondary)',
-                      border: isSelected ? '1px solid var(--accent-primary)' : '1px solid rgba(255,255,255,0.05)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      background: isSelected ? 'var(--primary-subtle)' : '#0e1017',
+                      border: `1px solid ${isSelected ? 'var(--primary)' : 'var(--border-subtle)'}`,
+                      cursor: 'pointer'
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <strong style={{ fontSize: '0.9rem', color: isSelected ? 'var(--accent-secondary)' : '#fff' }}>
-                        #{idx + 1}
-                      </strong>
-                      <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
-                        Cevap: {q.correctAnswer}
-                      </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px', fontSize: '0.82rem' }}>
+                      <strong>#{idx + 1}</strong>
+                      <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>Cevap: {q.correctAnswer}</span>
                     </div>
-                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {q.text}
                     </div>
                   </div>
@@ -564,34 +491,16 @@ export default function HostControlPage() {
         </div>
       </div>
 
-      {/* Sınıf Listesi & İsim Eşleme Modalı */}
+      {/* Sınıf Listesi Modalı */}
       {isRosterModalOpen && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.8)',
-          backdropFilter: 'blur(8px)',
-          zIndex: 9999,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px'
-        }}>
-          <div className="glass-card" style={{ maxWidth: '650px', width: '100%', maxHeight: '90vh', overflowY: 'auto', padding: '28px', background: '#12121a' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <div>
-                <h2 style={{ fontSize: '1.4rem', fontWeight: 800 }}>👥 Sınıf Listesi & İsim Eşleme</h2>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Kart numaralarına öğrenci isimleri atayın. Tahtada numara yerine isimler görünür.
-                </p>
-              </div>
-              <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-secondary" style={{ padding: '6px 12px' }}>
-                ✕
-              </button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="panel" style={{ maxWidth: '580px', width: '100%', padding: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Öğrenci Listesi & İsim Eşleme</h3>
+              <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-sm">✕</button>
             </div>
 
-            {/* Yeni Öğrenci / Numara Ekleme */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'var(--bg-secondary)', padding: '12px', borderRadius: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
               <input
                 type="number"
                 placeholder="No (Örn: 6)"
@@ -602,54 +511,35 @@ export default function HostControlPage() {
               />
               <input
                 type="text"
-                placeholder="Öğrenci Adı Soyadı (Örn: Berke Deniz)"
+                placeholder="Öğrenci Adı Soyadı"
                 value={newStudentName}
                 onChange={(e) => setNewStudentName(e.target.value)}
                 className="input"
                 style={{ flex: 1 }}
               />
-              <button onClick={addOrUpdateStudent} className="btn btn-success">
-                + Ekle
-              </button>
+              <button onClick={addStudent} className="btn btn-success">+ Ekle</button>
             </div>
 
-            {/* Mevcut Liste */}
-            <div style={{ marginBottom: '24px' }}>
-              <h4 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '10px' }}>Kayıtlı Öğrenciler ({Object.keys(roster).length})</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-                {Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([sId, sName]) => (
-                  <div key={sId} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', border: '1px solid var(--bg-glass-border)' }}>
-                    <div>
-                      <strong style={{ color: 'var(--accent-secondary)' }}>#{sId}</strong> {sName}
-                    </div>
-                    <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '0 4px', fontSize: '1rem' }} title="Sil">
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
+            <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+              {Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([sId, sName]) => (
+                <div key={sId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#0e1017', borderRadius: '6px', fontSize: '0.85rem' }}>
+                  <span><strong>#{sId}</strong> {sName}</span>
+                  <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>✕</button>
+                </div>
+              ))}
             </div>
 
-            {/* Toplu İsim Yapıştırma */}
-            <div style={{ borderTop: '1px solid var(--bg-glass-border)', paddingTop: '16px' }}>
-              <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '6px' }}>📋 Toplu İsim Yapıştır (Otomatik 1'den başlar)</h4>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>Toplu İsim Yapıştır (Alt alta):</div>
               <textarea
-                rows={3}
-                placeholder="Ali Yılmaz&#10;Ayşe Kaya&#10;Mehmet Demir"
+                rows={2}
                 value={bulkNames}
                 onChange={(e) => setBulkNames(e.target.value)}
+                placeholder="Ali Yılmaz&#10;Ayşe Kaya"
                 className="input"
-                style={{ width: '100%', marginBottom: '8px', fontSize: '0.85rem' }}
+                style={{ marginBottom: '8px', fontSize: '0.82rem' }}
               />
-              <button onClick={handleBulkImport} className="btn btn-secondary" style={{ width: '100%' }}>
-                ⚡ Toplu Listeyi İçe Aktar
-              </button>
-            </div>
-
-            <div style={{ marginTop: '20px', textAlign: 'right' }}>
-              <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-primary">
-                Tamamla & Kaydet
-              </button>
+              <button onClick={handleBulkImport} className="btn btn-sm" style={{ width: '100%' }}>Toplu Listeyi Aktar</button>
             </div>
           </div>
         </div>
@@ -659,6 +549,6 @@ export default function HostControlPage() {
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
       />
-    </main>
+    </div>
   );
 }

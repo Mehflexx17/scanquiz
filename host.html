@@ -3,421 +3,282 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ScanQuiz — Tahta Kontrol Paneli (host.html)</title>
+  <title>ScanQuiz — Tahta Kontrol Paneli</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #0a0a0f;
-      --card-bg: rgba(26, 26, 46, 0.7);
+      --bg: #0b0d13;
+      --surface: #12151f;
+      --elevated: #1a1e2c;
       --border: rgba(255, 255, 255, 0.08);
-      --accent: #6c5ce7;
-      --accent-cyan: #00cec9;
-      --success: #00b894;
-      --danger: #ff6b6b;
-      --warning: #fdcb6e;
-      --text: #f0f0f5;
-      --text-muted: #8888a0;
-      --font: 'Inter', sans-serif;
-      --mono: 'JetBrains Mono', monospace;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --text-dim: #6b7280;
+      --primary: #3b82f6;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
     }
-
     * { box-sizing: border-box; margin: 0; padding: 0; }
-
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: var(--font);
+      font-family: 'Plus Jakarta Sans', sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
-      padding: 24px;
+      padding: 20px;
       max-width: 1200px;
       margin: 0 auto;
     }
-
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      background: var(--card-bg);
-      backdrop-filter: blur(12px);
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 16px 24px;
-      margin-bottom: 24px;
+      border-radius: 12px;
+      padding: 14px 20px;
+      margin-bottom: 20px;
     }
-
-    .logo {
-      font-size: 1.4rem;
-      font-weight: 900;
-      background: linear-gradient(135deg, #6c5ce7, #00cec9);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
     }
-
     .btn {
-      background: rgba(255, 255, 255, 0.05);
+      background: var(--elevated);
       border: 1px solid var(--border);
       color: #fff;
-      padding: 10px 18px;
-      border-radius: 10px;
+      padding: 9px 16px;
+      border-radius: 8px;
       font-weight: 600;
+      font-size: 0.85rem;
       cursor: pointer;
-      transition: all 0.2s;
-      font-size: 0.9rem;
+      text-decoration: none;
     }
-    .btn:hover { background: rgba(255,255,255,0.1); border-color: var(--accent); }
-    .btn-primary { background: linear-gradient(135deg, #6c5ce7, #a29bfe); border: none; color: #fff; }
-    .btn-success { background: linear-gradient(135deg, #00b894, #55efc4); border: none; color: #000; font-weight: 700; }
-    .btn-danger { background: linear-gradient(135deg, #ff6b6b, #ff8e8e); border: none; color: #fff; }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 12px;
-      border-radius: 9999px;
-      font-size: 0.8rem;
-      font-weight: 700;
-    }
-    .badge-success { background: rgba(0, 184, 148, 0.15); color: #00b894; }
-    .badge-info { background: rgba(116, 185, 255, 0.15); color: #74b9ff; }
-    .badge-warning { background: rgba(253, 203, 110, 0.15); color: #fdcb6e; }
-
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 24px;
-      margin-bottom: 24px;
-    }
-
-    .grid-2 {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 24px;
-    }
-
-    input, textarea {
-      background: rgba(0,0,0,0.3);
+    .btn:hover { background: #222738; }
+    .btn-primary { background: var(--primary); border-color: var(--primary); }
+    .btn-success { background: var(--success); border-color: var(--success); color: #fff; }
+    .btn-danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .input {
+      background: #0e1017;
       border: 1px solid var(--border);
       color: #fff;
       padding: 10px 14px;
       border-radius: 8px;
       font-family: inherit;
+      outline: none;
     }
-    input:focus { border-color: var(--accent); outline: none; }
-
-    .dropzone {
-      border: 2px dashed rgba(255,255,255,0.15);
-      border-radius: 12px;
-      padding: 24px;
-      text-align: center;
-      cursor: pointer;
-      transition: all 0.2s;
+    .input:focus { border-color: var(--primary); }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
     }
-    .dropzone:hover { border-color: var(--accent); background: rgba(108, 92, 231, 0.05); }
-
-    .question-item {
-      padding: 12px 16px;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.03);
-      border: 1px solid var(--border);
-      margin-bottom: 10px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .question-item.active {
-      border-color: var(--accent);
-      background: rgba(108, 92, 231, 0.15);
+    .badge-info { background: rgba(59,130,246,0.15); color: #60a5fa; }
+    .badge-success { background: rgba(16,185,129,0.15); color: #34d399; }
+    .badge-warning { background: rgba(245,158,11,0.15); color: #fbbf24; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
     }
   </style>
 </head>
 <body>
 
   <header>
-    <div style="display: flex; align-items: center; gap: 16px;">
-      <div class="logo">🎮 ScanQuiz Kumandası</div>
-      <span class="badge badge-success" id="syncStatus">Yerel Mod Hazır</span>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-weight: 800; font-size: 1.2rem;">ScanQuiz Kumanda</span>
+      <span class="badge badge-warning" id="pairBadge">Oda Bağlantısı Bekleniyor</span>
     </div>
-    <div style="display: flex; gap: 12px;">
-      <button class="btn btn-primary" onclick="openRosterModal()">👥 Sınıf Listesi & İsimler</button>
-      <button class="btn" onclick="openBoardWindow()">📺 Tahtayı Aç (Yan Ekranda Bağla)</button>
+    <div style="display: flex; gap: 8px;">
+      <button class="btn" onclick="openRosterModal()">Öğrenci Listesi</button>
+      <a href="tahta.html" target="_blank" class="btn">Tahtayı Aç</a>
     </div>
   </header>
 
-  <!-- PIN Eşleşme Çubuğu -->
-  <section class="card" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
-    <div>
-      <h3 style="font-size: 1.1rem; font-weight: 700;">Tahta PIN Koduyla Eşleş</h3>
-      <p style="font-size: 0.85rem; color: var(--text-muted);">
-        tahta.html sayfasında görünen 6 haneli kodu girin veya Otomatik Eşleş butonuna tıklayın.
-      </p>
-    </div>
-    <div style="display: flex; gap: 8px;">
-      <input type="text" id="pinInput" placeholder="123456" maxlength="6" style="width: 120px; text-align: center; font-family: var(--mono); font-size: 1.2rem; font-weight: 700;">
-      <button class="btn btn-primary" onclick="pairWithPin()">Eşleş</button>
-      <button class="btn" onclick="autoPairLocal()">⚡ Otomatik Eşleş</button>
+  <!-- PIN GİRİŞ ALANI (KOD OTONOM DOLDURULMAZ, KULLANICI YAZAR) -->
+  <section class="panel" id="pairPanel">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+      <div>
+        <h2 style="font-size: 1.1rem; fontWeight: 700;">Tahta PIN Koduyla Bağlan</h2>
+        <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 2px;">
+          Bağlanmak istediğiniz akıllı tahtadaki 6 haneli kodu yazın.
+        </p>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <input
+          type="text"
+          id="pinInput"
+          placeholder="Örn: 482910"
+          maxlength="6"
+          class="input"
+          style="width: 140px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 700;"
+          autofocus
+        >
+        <button class="btn btn-primary" onclick="pairWithPin()">Tahtaya Bağlan</button>
+      </div>
     </div>
   </section>
 
   <div class="grid-2">
-    <!-- Sol Kolon: Canlı Kumanda -->
     <div>
-      <!-- Soru Kontrolü -->
-      <section class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-          <span class="badge badge-info" id="qCurrentBadge">Soru 1 / 3</span>
-          <span class="badge badge-warning" id="qLiveState">Beklemede</span>
+      <!-- Soru Kumandası -->
+      <section class="panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <span class="badge badge-info" id="qBadge">Soru 1 / 3</span>
+          <span class="badge badge-warning" id="qStateBadge">Hazır</span>
         </div>
 
-        <div style="background: rgba(0,0,0,0.25); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid var(--border);">
-          <h2 id="dispQText" style="font-size: 1.2rem; font-weight: 700; margin-bottom: 12px;">Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?</h2>
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.85rem;">
-            <div id="dispOptA" style="padding: 6px 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">A: 1919</div>
-            <div id="dispOptB" style="padding: 6px 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">B: 1920</div>
-            <div id="dispOptC" style="padding: 6px 10px; background: rgba(0, 184, 148, 0.2); border: 1px solid var(--success); border-radius: 6px; font-weight: 700;">C: 1923 ✅ (Doğru)</div>
-            <div id="dispOptD" style="padding: 6px 10px; background: rgba(255,255,255,0.05); border-radius: 6px;">D: 1938</div>
+        <div style="background: #0e1017; padding: 18px; border-radius: 8px; margin-bottom: 18px; border: 1px solid var(--border);">
+          <h3 id="dispQText" style="font-size: 1.15rem; font-weight: 700; margin-bottom: 14px;">Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.88rem;">
+            <div id="optA" style="padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: 6px;">A: 1919</div>
+            <div id="optB" style="padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: 6px;">B: 1920</div>
+            <div id="optC" style="padding: 8px 10px; background: rgba(16,185,129,0.15); border: 1px solid var(--success); border-radius: 6px; font-weight: 700;">C: 1923 (Doğru)</div>
+            <div id="optD" style="padding: 8px 10px; background: rgba(255,255,255,0.03); border-radius: 6px;">D: 1938</div>
           </div>
         </div>
 
-        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-          <button class="btn btn-success" id="btnStart" onclick="startCurrentQuestion()" style="flex: 1;">▶ Soruyu Tahtada Başlat</button>
-          <button class="btn btn-danger" id="btnEnd" onclick="endCurrentQuestion()" style="display: none; flex: 1;">⏹ Soruyu Bitir (Cevapları Açıkla)</button>
-          <button class="btn" onclick="nextQuestion()">⏭ Sıradaki Soru</button>
-          <button class="btn" onclick="resetBoard()">🔄 Sıfırla</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-success" id="btnStart" onclick="startQuestion()" style="flex: 1;">Soruyu Tahtada Başlat</button>
+          <button class="btn btn-danger" id="btnEnd" onclick="endQuestion()" style="display: none; flex: 1;">Soruyu Bitir (Cevapları Açıkla)</button>
+          <button class="btn" onclick="nextQuestion()">Sıradaki Soru</button>
+          <button class="btn" onclick="resetBoard()">Sıfırla</button>
         </div>
       </section>
 
-      <!-- Öğretmene Özel Canlı Cevap Akışı (Öğretmen kimin ne dediğini görür!) -->
-      <section class="card">
+      <!-- Öğretmene Özel Canlı Akış -->
+      <section class="panel">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <div>
-            <h3 style="font-size: 1.1rem; font-weight: 700;">👨‍🏫 Öğretmene Özel Canlı Akış</h3>
-            <p style="font-size: 0.8rem; color: var(--text-muted);">Tahtada şıklar gizlidir fakat siz kimin ne cevap verdiğini anında görürsünüz.</p>
+            <h3 style="font-size: 0.95rem; font-weight: 700;">Canlı Yanıtlar (Öğretmen Görünümü)</h3>
+            <p style="font-size: 0.78rem; color: var(--text-muted);">Tahtada şıklar gizlidir fakat kimin ne dediğini buradan anlık görebilirsiniz.</p>
           </div>
-          <span class="badge badge-info"><span id="teacherRespCount">0</span> Öğrenci</span>
+          <span class="badge badge-info"><span id="teacherCount">0</span> Katılımcı</span>
         </div>
 
-        <div id="teacherGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; padding: 4px;">
-          <div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.85rem;">
-            Henüz gelen yanıt yok. Aşağıdaki simülatör butonlarıyla test edebilirsiniz.
+        <div id="teacherGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto;">
+          <div style="grid-column: 1/-1; text-align: center; color: var(--text-dim); padding: 16px; font-size: 0.85rem;">
+            Gelen yanıt yok. Simülatörle test edebilirsiniz.
           </div>
         </div>
 
-        <!-- HIZLI SANAL ÖĞRENCİ SİMÜLATÖRÜ -->
-        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-            <div style="font-size: 0.8rem; color: var(--text-muted);">
-              🧪 Sanal Öğrenci Kartı Tıklama Simülatörü:
-            </div>
-            <button onclick="openRosterModal()" style="background: none; border: none; color: var(--accent-cyan); font-size: 0.75rem; cursor: pointer; text-decoration: underline;">
-              + Yeni İsim / Numara Ekle
-            </button>
-          </div>
-          <div id="simButtonsWrap" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
+        <!-- Simülatör -->
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);">
+          <div style="font-size: 0.75rem; color: var(--text-dim); margin-bottom: 8px;">Simülatör Butonları:</div>
+          <div id="simWrap" style="display: flex; gap: 8px; flex-wrap: wrap;"></div>
         </div>
       </section>
     </div>
 
-    <!-- Sağ Kolon: PDF / Excel Yükleme ve Soru Listesi -->
+    <!-- Sağ Kolon: Soru Havuzu -->
     <div>
-      <!-- Dosya Yükleme Alanı -->
-      <section class="card">
-        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 8px;">📄 PDF veya Excel / CSV Yükle</h3>
-        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">
-          Sorularınızı içeren PDF, Excel (.xlsx) veya CSV tablosunu buraya bırakın.
-        </p>
-
-        <div class="dropzone" id="dropArea" onclick="document.getElementById('fileInput').click()">
-          <div style="font-size: 2rem; margin-bottom: 6px;">📂</div>
-          <div style="font-weight: 700; font-size: 0.9rem;">Dosya Seç veya Sürükle Bırak</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;">.csv, .xlsx, .txt, .pdf desteklenir</div>
-        </div>
+      <section class="panel">
+        <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 8px;">Soru İçe Aktar (PDF / Excel / CSV)</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 12px;">Dosyanızı buraya bırakın veya seçin.</p>
         <input type="file" id="fileInput" accept=".csv,.xlsx,.xls,.txt,.pdf" style="display: none;" onchange="handleFile(this.files[0])">
-
-        <div style="display: flex; gap: 8px; margin-top: 10px;">
-          <button class="btn" style="flex: 1;" onclick="loadDemoQuestions()">✨ Demo Soruları Yükle</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()" style="flex: 1;">Dosya Seç</button>
+          <button class="btn" onclick="loadDemoQuestions()">Örnek Sorular</button>
         </div>
         <div id="fileStatus" style="font-size: 0.8rem; margin-top: 8px; color: var(--success);"></div>
       </section>
 
-      <!-- Soru Havuzu -->
-      <section class="card">
-        <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 12px;">📋 Soru Havuzu</h3>
-        <div id="questionsList" style="max-height: 380px; overflow-y: auto;"></div>
+      <section class="panel">
+        <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 12px;">Soru Havuzu (<span id="qTotalCount">3</span>)</h3>
+        <div id="questionsList" style="max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;"></div>
       </section>
     </div>
   </div>
 
+  <!-- Sınıf Listesi Modalı -->
+  <div id="rosterModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
+    <div class="panel" style="max-width: 540px; width: 100%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h3 style="font-size: 1.15rem; font-weight: 700;">Öğrenci Listesi</h3>
+        <button onclick="closeRosterModal()" class="btn" style="padding: 4px 8px;">✕</button>
+      </div>
+      <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+        <input type="number" id="newStudId" placeholder="No" class="input" style="width: 80px;">
+        <input type="text" id="newStudName" placeholder="Öğrenci Adı Soyadı" class="input" style="flex: 1;">
+        <button class="btn btn-success" onclick="addRosterItem()">+ Ekle</button>
+      </div>
+      <div id="rosterListWrap" style="max-height: 200px; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 14px;"></div>
+      <div style="text-align: right;">
+        <button class="btn btn-primary" onclick="closeRosterModal()">Tamamla</button>
+      </div>
+    </div>
+  </div>
+
   <script>
-    // --- GÜÇLENDİRİLMİŞ HABERLEŞME HATTI (postMessage + BroadcastChannel + LocalStorage) ---
-    let bus = null;
-    let boardWindowRef = null;
+    // ⚠️ KOD OTONOM DOLDURULMAZ — targetPin KULLANICI GİRDİĞİNDE BELİRLENİR
+    let targetPin = '';
+    let isRunning = false;
+    let questions = [
+      { id: 1, text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?', options: { A:'1919', B:'1920', C:'1923', D:'1938' }, correctAnswer: 'C' },
+      { id: 2, text: 'Güneş sistemindeki en büyük gezegen hangisidir?', options: { A:'Mars', B:'Jüpiter', C:'Satürn', D:'Dünya' }, correctAnswer: 'B' },
+      { id: 3, text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?', options: { A:'H2O', B:'CO2', C:'NaCl', D:'O2' }, correctAnswer: 'A' }
+    ];
+    let currentIdx = 0;
+    const teacherResponses = new Map();
+    let roster = JSON.parse(localStorage.getItem('scanquiz_roster') || '{"1":"Ali Yılmaz","2":"Ayşe Kaya","3":"Mehmet Demir","4":"Zeynep Bal","5":"Can Sarı"}');
 
-    try {
-      bus = new BroadcastChannel('scanquiz_local_sync');
-      bus.onmessage = (e) => onHostMessage(e.data);
-    } catch (e) {
-      console.warn('BroadcastChannel kullanılamıyor, fallback devrede');
-    }
-
-    // Doğrudan window.postMessage dinleyicisi
-    window.addEventListener('message', (e) => {
-      if (e.data && e.data.event) {
-        onHostMessage(e.data);
-      }
-    });
-
-    // LocalStorage dinleyicisi
-    window.addEventListener('storage', (e) => {
-      if (e.key === 'scanquiz_bus_event' && e.newValue) {
-        try { onHostMessage(JSON.parse(e.newValue)); } catch (err) {}
-      }
-    });
+    const bus = new BroadcastChannel('scanquiz_local_sync');
 
     function sendEvent(event, payload) {
-      const pkt = { event, payload, ts: Date.now() };
+      if (!targetPin) return;
+      const pkt = { room: `sq_${targetPin}`, event, payload, ts: Date.now() };
+      try { bus.postMessage(pkt); } catch(e) {}
+      try { localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt)); } catch(e) {}
+    }
 
-      // 1. BroadcastChannel
-      if (bus) {
-        try { bus.postMessage(pkt); } catch (e) {}
+    function pairWithPin() {
+      const val = document.getElementById('pinInput').value.trim();
+      if (!val || val.length < 4) {
+        alert('Lütfen geçerli bir PIN girin.');
+        return;
       }
-
-      // 2. LocalStorage
-      try {
-        localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
-      } catch (e) {}
-
-      // 3. Açık olan Tahta Penceresine doğrudan postMessage (file:// protokolünde %100 çalışır)
-      try {
-        if (boardWindowRef && !boardWindowRef.closed) {
-          boardWindowRef.postMessage(pkt, '*');
-        }
-      } catch (e) {}
+      targetPin = val;
+      sendEvent('host_paired', { pin: val });
+      document.getElementById('pairBadge').innerText = 'Bağlandı: ' + val;
+      document.getElementById('pairBadge').className = 'badge badge-success';
     }
 
-    function onHostMessage(data) {
-      if (!data || !data.event) return;
-      const { event, payload } = data;
-
-      if (event === 'board_ack') {
-        document.getElementById('syncStatus').innerText = 'Tahtaya Bağlandı ✅';
-        document.getElementById('syncStatus').className = 'badge badge-success';
+    function startQuestion() {
+      if (!targetPin) {
+        alert('Lütfen önce yukarıdan tahta PIN kodunu girip bağlanın!');
+        return;
       }
-      else if (event === 'pin_rotated') {
-        if (!document.getElementById('pinInput').value) {
-          document.getElementById('pinInput').value = payload.pin;
-        }
-      }
-    }
-
-    // Tahta Penceresini Güvenli Aç ve Referansı Sakla
-    function openBoardWindow() {
-      boardWindowRef = window.open('tahta.html', 'ScanQuizTahta');
-      setTimeout(() => {
-        autoPairLocal();
-      }, 800);
-    }
-
-    // --- SORULAR LİSTESİ ---
-    let questions = [
-      {
-        id: 1,
-        text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?',
-        options: { A: '1919', B: '1920', C: '1923', D: '1938' },
-        correctAnswer: 'C'
-      },
-      {
-        id: 2,
-        text: 'Güneş sistemindeki en büyük gezegen hangisidir?',
-        options: { A: 'Mars', B: 'Jüpiter', C: 'Satürn', D: 'Dünya' },
-        correctAnswer: 'B'
-      },
-      {
-        id: 3,
-        text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?',
-        options: { A: 'H2O', B: 'CO2', C: 'NaCl', D: 'O2' },
-        correctAnswer: 'A'
-      }
-    ];
-
-    let currentIdx = 0;
-    let isRunning = false;
-    const teacherResponses = new Map(); // studentId -> choice
-
-    function renderQuestionsList() {
-      const wrap = document.getElementById('questionsList');
-      wrap.innerHTML = '';
-      questions.forEach((q, idx) => {
-        const item = document.createElement('div');
-        item.className = 'question-item ' + (idx === currentIdx ? 'active' : '');
-        item.innerHTML = `
-          <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
-            <strong style="color:var(--accent-cyan);">#${idx + 1}</strong>
-            <span class="badge badge-info" style="font-size:0.75rem;">Cevap: ${q.correctAnswer}</span>
-          </div>
-          <div style="font-size:0.85rem; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            ${q.text}
-          </div>
-        `;
-        item.onclick = () => selectQuestion(idx);
-        wrap.appendChild(item);
-      });
-      renderCurrentQuestion();
-    }
-
-    function selectQuestion(idx) {
-      currentIdx = idx;
-      renderQuestionsList();
-    }
-
-    function renderCurrentQuestion() {
-      const q = questions[currentIdx];
-      if (!q) return;
-
-      document.getElementById('qCurrentBadge').innerText = `Soru ${currentIdx + 1} / ${questions.length}`;
-      document.getElementById('dispQText').innerText = q.text;
-
-      ['A', 'B', 'C', 'D'].forEach(k => {
-        const el = document.getElementById('dispOpt' + k);
-        const isCorr = q.correctAnswer === k;
-        el.innerHTML = `<strong>${k}:</strong> ${q.options[k] || '-'}` + (isCorr ? ' ✅ (Doğru)' : '');
-        el.style.background = isCorr ? 'rgba(0, 184, 148, 0.2)' : 'rgba(255,255,255,0.05)';
-        el.style.border = isCorr ? '1px solid var(--success)' : 'none';
-        el.style.fontWeight = isCorr ? '700' : 'normal';
-      });
-    }
-
-    // Kumanda İşlemleri
-    function startCurrentQuestion() {
-      const q = questions[currentIdx];
-      if (!q) return;
       isRunning = true;
       teacherResponses.clear();
       renderTeacherGrid();
 
-      document.getElementById('qLiveState').innerText = '▶ Soru Tahtada Aktif';
-      document.getElementById('qLiveState').className = 'badge badge-warning';
+      document.getElementById('qStateBadge').innerText = 'Yayında';
+      document.getElementById('qStateBadge').className = 'badge badge-warning';
       document.getElementById('btnStart').style.display = 'none';
       document.getElementById('btnEnd').style.display = 'block';
 
-      sendEvent('start_question', q);
+      sendEvent('start_question', questions[currentIdx]);
     }
 
-    function endCurrentQuestion() {
-      const q = questions[currentIdx];
-      if (!q) return;
+    function endQuestion() {
       isRunning = false;
-
-      document.getElementById('qLiveState').innerText = '⏹ Cevaplar Açıklandı';
-      document.getElementById('qLiveState').className = 'badge badge-success';
+      document.getElementById('qStateBadge').innerText = 'Cevaplar Açıklandı';
+      document.getElementById('qStateBadge').className = 'badge badge-success';
       document.getElementById('btnStart').style.display = 'block';
       document.getElementById('btnEnd').style.display = 'none';
 
-      // İstatistik hesapla
       const stats = { A: 0, B: 0, C: 0, D: 0 };
       const rawResults = {};
       teacherResponses.forEach((choice, sId) => {
@@ -426,10 +287,10 @@
       });
 
       sendEvent('end_question', {
-        questionId: q.id,
-        correctAnswer: q.correctAnswer,
+        questionId: questions[currentIdx].id,
+        correctAnswer: questions[currentIdx].correctAnswer,
         results: rawResults,
-        stats: stats
+        stats
       });
     }
 
@@ -437,17 +298,17 @@
       if (currentIdx + 1 < questions.length) {
         currentIdx++;
         renderQuestionsList();
-        startCurrentQuestion();
+        startQuestion();
       } else {
-        alert('Tüm sorular tamamlandı!');
+        alert('Tüm sorular tamamlandı.');
         resetBoard();
       }
     }
 
     function resetBoard() {
       isRunning = false;
-      document.getElementById('qLiveState').innerText = 'Beklemede';
-      document.getElementById('qLiveState').className = 'badge badge-info';
+      document.getElementById('qStateBadge').innerText = 'Hazır';
+      document.getElementById('qStateBadge').className = 'badge badge-info';
       document.getElementById('btnStart').style.display = 'block';
       document.getElementById('btnEnd').style.display = 'none';
       teacherResponses.clear();
@@ -455,7 +316,6 @@
       sendEvent('reset_question', {});
     }
 
-    // Sanal Öğrenci Yanıt Gönderimi (Simülatör veya Harici Kamera)
     function simResp(studentId, choice) {
       if (!isRunning) {
         alert('Lütfen önce "Soruyu Tahtada Başlat" butonuna basın!');
@@ -463,107 +323,14 @@
       }
       teacherResponses.set(studentId, choice);
       renderTeacherGrid();
-
-      // Tahtaya SADECE 'SUBMITTED' gider (Anti-Cheat)
-      sendEvent('student_submitted', {
-        studentId: studentId,
-        status: 'SUBMITTED'
-      });
-    }
-
-    // --- ÖĞRENCİ LİSTESİ / ROSTER YÖNETİMİ ---
-    let roster = JSON.parse(localStorage.getItem('scanquiz_roster') || '{"1":"Ali Yılmaz","2":"Ayşe Kaya","3":"Mehmet Demir","4":"Zeynep Bal","5":"Can Sarı"}');
-
-    function saveRoster() {
-      localStorage.setItem('scanquiz_roster', JSON.stringify(roster));
-      sendEvent('roster_updated', roster);
-      renderRosterList();
-      renderTeacherGrid();
-      renderSimulatorButtons();
-    }
-
-    function openRosterModal() {
-      document.getElementById('rosterModal').style.display = 'flex';
-      renderRosterList();
-    }
-
-    function closeRosterModal() {
-      document.getElementById('rosterModal').style.display = 'none';
-    }
-
-    function renderRosterList() {
-      const wrap = document.getElementById('rosterListWrap');
-      wrap.innerHTML = '';
-      const entries = Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b));
-      document.getElementById('rosterCount').innerText = entries.length;
-
-      entries.forEach(([sId, sName]) => {
-        const item = document.createElement('div');
-        item.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:8px 12px; background:rgba(255,255,255,0.04); border-radius:8px; border:1px solid var(--border);';
-        item.innerHTML = `
-          <div><strong style="color:var(--accent-cyan);">#${sId}</strong> ${sName}</div>
-          <button onclick="removeRosterItem('${sId}')" style="background:none; border:none; color:var(--danger); font-size:1rem; cursor:pointer;">✕</button>
-        `;
-        wrap.appendChild(item);
-      });
-    }
-
-    function addRosterItem() {
-      const id = parseInt(document.getElementById('newStudId').value.trim(), 10);
-      const name = document.getElementById('newStudName').value.trim();
-      if (!id || !name) return;
-
-      roster[id] = name;
-      saveRoster();
-      document.getElementById('newStudId').value = '';
-      document.getElementById('newStudName').value = '';
-    }
-
-    function removeRosterItem(id) {
-      delete roster[id];
-      saveRoster();
-    }
-
-    function bulkImportRoster() {
-      const text = document.getElementById('bulkRosterText').value.trim();
-      if (!text) return;
-      const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
-      lines.forEach((n, idx) => {
-        roster[idx + 1] = n;
-      });
-      saveRoster();
-      document.getElementById('bulkRosterText').value = '';
-      alert(`${lines.length} öğrenci listeye eklendi!`);
-    }
-
-    function renderSimulatorButtons() {
-      const wrap = document.getElementById('simButtonsWrap');
-      if (!wrap) return;
-      wrap.innerHTML = '';
-      const ids = Object.keys(roster).length > 0 ? Object.keys(roster).slice(0, 8) : ['1', '2', '3', '4', '5'];
-
-      ids.forEach(sId => {
-        const sName = roster[sId] || `Öğrenci #${sId}`;
-        const div = document.createElement('div');
-        div.style.cssText = 'display:inline-flex; flex-direction:column; background:rgba(255,255,255,0.05); padding:6px 8px; border-radius:8px; gap:4px; font-size:0.75rem;';
-        div.innerHTML = `
-          <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:90px;" title="${sName}">#${sId} ${sName}</div>
-          <div style="display:flex; gap:3px;">
-            <button onclick="simResp(${sId}, 'A')" style="background:#6c5ce7; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">A</button>
-            <button onclick="simResp(${sId}, 'B')" style="background:#00cec9; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">B</button>
-            <button onclick="simResp(${sId}, 'C')" style="background:#fd79a8; border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">C</button>
-            <button onclick="simResp(${sId}, 'D')" style="background:#fdcb6e; border:none; color:#000; border-radius:4px; padding:2px 5px; cursor:pointer; font-weight:700;">D</button>
-          </div>
-        `;
-        wrap.appendChild(div);
-      });
+      sendEvent('student_submitted', { studentId, status: 'SUBMITTED' });
     }
 
     function renderTeacherGrid() {
       const wrap = document.getElementById('teacherGrid');
-      document.getElementById('teacherRespCount').innerText = teacherResponses.size;
+      document.getElementById('teacherCount').innerText = teacherResponses.size;
       if (teacherResponses.size === 0) {
-        wrap.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 16px; font-size: 0.85rem;">Henüz gelen yanıt yok.</div>`;
+        wrap.innerHTML = `<div style="grid-column: 1/-1; text-align: center; color: var(--text-dim); padding: 16px; font-size: 0.85rem;">Gelen yanıt yok.</div>`;
         return;
       }
       wrap.innerHTML = '';
@@ -572,132 +339,89 @@
         const isCorr = q && choice === q.correctAnswer;
         const sName = roster[sId] || `Öğrenci #${sId}`;
         const b = document.createElement('div');
-        b.style.padding = '8px';
-        b.style.borderRadius = '8px';
-        b.style.background = 'rgba(255,255,255,0.05)';
-        b.style.border = '1px solid ' + (isCorr ? 'var(--success)' : 'rgba(255,255,255,0.1)');
-        b.style.textAlign = 'center';
-        b.innerHTML = `<div style="font-weight:700; font-size:0.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${sName}</div><div style="font-size:0.7rem; opacity:0.6;">#${sId}</div><div style="font-size:1.1rem; font-weight:900; color:${isCorr ? 'var(--success)' : 'var(--danger)'};">${choice}</div>`;
+        b.style.cssText = `padding: 8px; border-radius: 6px; background: #0e1017; border: 1px solid ${isCorr ? 'var(--success)' : 'var(--border)'}; text-align: center;`;
+        b.innerHTML = `<div style="font-size:0.75rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${sName}</div><div style="font-size:1.15rem; font-weight:800; color:${isCorr ? 'var(--success)' : 'var(--danger)'};">${choice}</div>`;
         wrap.appendChild(b);
       });
     }
 
-    // Otomatik Eşleşme
-    function pairWithPin() {
-      const p = document.getElementById('pinInput').value.trim();
-      if (!p) return;
-      sendEvent('host_paired', { pin: p });
-      document.getElementById('syncStatus').innerText = 'Eşleşti (PIN: ' + p + ')';
-    }
+    function renderQuestionsList() {
+      const wrap = document.getElementById('questionsList');
+      wrap.innerHTML = '';
+      document.getElementById('qTotalCount').innerText = questions.length;
+      questions.forEach((q, idx) => {
+        const div = document.createElement('div');
+        div.style.cssText = `padding: 10px; border-radius: 6px; background: ${idx === currentIdx ? 'rgba(59,130,246,0.15)' : '#0e1017'}; border: 1px solid ${idx === currentIdx ? 'var(--primary)' : 'var(--border)'}; cursor: pointer; font-size: 0.85rem;`;
+        div.innerHTML = `<div style="display:flex; justify-content:space-between; margin-bottom:2px;"><strong>#${idx+1}</strong><span style="color:var(--primary);">Cevap: ${q.correctAnswer}</span></div><div style="color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${q.text}</div>`;
+        div.onclick = () => { currentIdx = idx; renderQuestionsList(); };
+        wrap.appendChild(div);
+      });
 
-    function autoPairLocal() {
-      const p = localStorage.getItem('scanquiz_active_pin') || '123456';
-      document.getElementById('pinInput').value = p;
-      pairWithPin();
-    }
-
-    // --- DOSYA (PDF / EXCEL / CSV) AYRIŞTIRMA ---
-    function handleFile(file) {
-      if (!file) return;
-      document.getElementById('fileStatus').innerText = file.name + ' okunuyor...';
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
-        const text = e.target.result;
-        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-        const parsed = [];
-
-        lines.forEach((line, idx) => {
-          const sep = line.includes(';') ? ';' : (line.includes('\t') ? '\t' : ',');
-          const cols = line.split(sep).map(c => c.replace(/^["']|["']$/g, '').trim());
-          if (cols.length >= 5) {
-            // Başlık satırını atla
-            if (idx === 0 && (cols[0].toLowerCase().includes('soru') || cols[0].toLowerCase().includes('question'))) return;
-            parsed.push({
-              id: parsed.length + 1,
-              text: cols[0],
-              options: { A: cols[1], B: cols[2], C: cols[3], D: cols[4] },
-              correctAnswer: (cols[5] || 'A').toUpperCase().trim()
-            });
-          }
+      const q = questions[currentIdx];
+      if (q) {
+        document.getElementById('qBadge').innerText = `Soru ${currentIdx+1} / ${questions.length}`;
+        document.getElementById('dispQText').innerText = q.text;
+        ['A', 'B', 'C', 'D'].forEach(k => {
+          const el = document.getElementById('opt' + k);
+          const isCorr = q.correctAnswer === k;
+          el.innerHTML = `${k}: ${q.options[k] || '-'}` + (isCorr ? ' (Doğru)' : '');
+          el.style.background = isCorr ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.03)';
+          el.style.borderColor = isCorr ? 'var(--success)' : 'transparent';
         });
-
-        if (parsed.length > 0) {
-          questions = parsed;
-          currentIdx = 0;
-          renderQuestionsList();
-          document.getElementById('fileStatus').innerText = `✅ Başarılı! ${parsed.length} soru aktarıldı.`;
-        } else {
-          document.getElementById('fileStatus').innerText = '⚠️ Soru bulunamadı. Örnek CSV formatı: Soru;A;B;C;D;Cevap';
-        }
-      };
-      reader.readAsText(file);
+      }
     }
 
-    // Sürükle bırak desteği
-    const dropArea = document.getElementById('dropArea');
-    dropArea.ondragover = (e) => { e.preventDefault(); dropArea.style.borderColor = '#6c5ce7'; };
-    dropArea.ondragleave = () => { dropArea.style.borderColor = 'rgba(255,255,255,0.15)'; };
-    dropArea.ondrop = (e) => {
-      e.preventDefault();
-      dropArea.style.borderColor = 'rgba(255,255,255,0.15)';
-      if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
-    };
-
-    function loadDemoQuestions() {
-      questions = [
-        { id: 1, text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?', options: { A:'1919', B:'1920', C:'1923', D:'1938' }, correctAnswer: 'C' },
-        { id: 2, text: 'Güneş sistemindeki en büyük gezegen hangisidir?', options: { A:'Mars', B:'Jüpiter', C:'Satürn', D:'Dünya' }, correctAnswer: 'B' },
-        { id: 3, text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?', options: { A:'H2O', B:'CO2', C:'NaCl', D:'O2' }, correctAnswer: 'A' },
-        { id: 4, text: 'Fatih Sultan Mehmet İstanbulu hangi yıl fethetmiştir?', options: { A:'1071', B:'1453', C:'1923', D:'1299' }, correctAnswer: 'B' }
-      ];
-      currentIdx = 0;
-      renderQuestionsList();
-      document.getElementById('fileStatus').innerText = '✅ 4 adet demo soru yüklendi.';
+    function renderSimButtons() {
+      const wrap = document.getElementById('simWrap');
+      wrap.innerHTML = '';
+      Object.keys(roster).slice(0, 6).forEach(sId => {
+        const div = document.createElement('div');
+        div.style.cssText = 'display:inline-flex; background:#0e1017; padding:4px 6px; border-radius:6px; gap:4px;';
+        div.innerHTML = `
+          <span style="font-size:0.75rem; align-self:center; color:var(--text-muted);">#${sId}:</span>
+          <button onclick="simResp(${sId},'A')" style="background:rgba(255,255,255,0.06); border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">A</button>
+          <button onclick="simResp(${sId},'B')" style="background:rgba(255,255,255,0.06); border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">B</button>
+          <button onclick="simResp(${sId},'C')" style="background:rgba(255,255,255,0.06); border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">C</button>
+          <button onclick="simResp(${sId},'D')" style="background:rgba(255,255,255,0.06); border:none; color:#fff; border-radius:4px; padding:2px 5px; cursor:pointer;">D</button>
+        `;
+        wrap.appendChild(div);
+      });
     }
 
-  <!-- Sınıf Listesi & İsim Eşleme Modalı -->
-  <div id="rosterModal" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(8px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;">
-    <div style="background: #161622; border: 1px solid var(--border); border-radius: 18px; max-width: 600px; width: 100%; padding: 24px; max-height: 90vh; overflow-y: auto;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <div>
-          <h2 style="font-size: 1.3rem; font-weight: 800;">👥 Sınıf Listesi & İsim Eşleme</h2>
-          <p style="font-size: 0.8rem; color: var(--text-muted);">Kart numaralarına öğrenci isimleri verin. Tahtada isimler görünür.</p>
-        </div>
-        <button onclick="closeRosterModal()" style="background: none; border: none; color: #fff; font-size: 1.2rem; cursor: pointer;">✕</button>
-      </div>
+    function openRosterModal() { document.getElementById('rosterModal').style.display = 'flex'; renderRosterList(); }
+    function closeRosterModal() { document.getElementById('rosterModal').style.display = 'none'; }
+    function renderRosterList() {
+      const wrap = document.getElementById('rosterListWrap');
+      wrap.innerHTML = '';
+      Object.entries(roster).sort(([a],[b])=>parseInt(a)-parseInt(b)).forEach(([sId, sName]) => {
+        const d = document.createElement('div');
+        d.style.cssText = 'display:flex; justify-content:space-between; padding:6px 8px; background:#0e1017; border-radius:6px; font-size:0.8rem;';
+        d.innerHTML = `<span><strong>#{sId}</strong> ${sName}</span><button onclick="deleteRosterItem('${sId}')" style="background:none; border:none; color:var(--danger); cursor:pointer;">✕</button>`;
+        wrap.appendChild(d);
+      });
+    }
+    function addRosterItem() {
+      const id = parseInt(document.getElementById('newStudId').value.trim(), 10);
+      const name = document.getElementById('newStudName').value.trim();
+      if (!id || !name) return;
+      roster[id] = name;
+      localStorage.setItem('scanquiz_roster', JSON.stringify(roster));
+      sendEvent('roster_updated', roster);
+      renderRosterList();
+      renderSimButtons();
+      document.getElementById('newStudId').value = '';
+      document.getElementById('newStudName').value = '';
+    }
+    function deleteRosterItem(id) {
+      delete roster[id];
+      localStorage.setItem('scanquiz_roster', JSON.stringify(roster));
+      sendEvent('roster_updated', roster);
+      renderRosterList();
+      renderSimButtons();
+    }
 
-      <!-- Yeni Öğrenci Ekle -->
-      <div style="display: flex; gap: 8px; margin-bottom: 16px; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 10px;">
-        <input type="number" id="newStudId" placeholder="No (Örn: 6)" style="width: 100px;">
-        <input type="text" id="newStudName" placeholder="Öğrenci Adı Soyadı" style="flex: 1;">
-        <button class="btn btn-success" onclick="addRosterItem()">+ Ekle</button>
-      </div>
-
-      <!-- Liste -->
-      <div style="margin-bottom: 20px;">
-        <div style="font-size: 0.85rem; font-weight: 700; margin-bottom: 8px;">Kayıtlı Öğrenciler (<span id="rosterCount">0</span>)</div>
-        <div id="rosterListWrap" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 200px; overflow-y: auto;"></div>
-      </div>
-
-      <!-- Toplu Ekleme -->
-      <div style="border-top: 1px solid var(--border); padding-top: 12px; margin-bottom: 16px;">
-        <div style="font-size: 0.8rem; font-weight: 700; margin-bottom: 4px;">📋 Toplu İsim Yapıştır (Satır satır):</div>
-        <textarea id="bulkRosterText" rows="3" placeholder="Ali Yılmaz&#10;Ayşe Kaya&#10;Mehmet Demir" style="width: 100%; margin-bottom: 8px; font-size: 0.8rem;"></textarea>
-        <button class="btn" style="width: 100%; font-size: 0.85rem;" onclick="bulkImportRoster()">⚡ Toplu Listeyi Aktar</button>
-      </div>
-
-      <div style="text-align: right;">
-        <button class="btn btn-primary" onclick="closeRosterModal()">Tamamla & Kaydet</button>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    // İlk çalıştırma
     renderQuestionsList();
-    renderSimulatorButtons();
-    setTimeout(autoPairLocal, 500);
+    renderSimButtons();
   </script>
 </body>
 </html>
