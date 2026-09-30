@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScanQuiz — Akıllı Tahta (Yerel Test Ekranı)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=JetBrains+Mono:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --card-bg: rgba(26, 26, 46, 0.7);
+      --border: rgba(255, 255, 255, 0.08);
+      --accent: #6c5ce7;
+      --accent-cyan: #00cec9;
+      --success: #00b894;
+      --danger: #ff6b6b;
+      --warning: #fdcb6e;
+      --text: #f0f0f5;
+      --text-muted: #8888a0;
+      --font: 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      overflow-x: hidden;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--card-bg);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px 24px;
+      margin-bottom: 24px;
+    }
+
+    .logo {
+      font-size: 1.5rem;
+      font-weight: 900;
+      background: linear-gradient(135deg, #6c5ce7, #00cec9);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+    .badge-info { background: rgba(116, 185, 255, 0.15); color: #74b9ff; }
+    .badge-success { background: rgba(0, 184, 148, 0.15); color: #00b894; }
+    .badge-warning { background: rgba(253, 203, 110, 0.15); color: #fdcb6e; }
+
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: rgba(255,255,255,0.1); border-color: var(--accent); }
+
+    /* PIN Ekranı */
+    #idleView {
+      max-width: 800px;
+      margin: 40px auto;
+      text-align: center;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 60px 30px;
+    }
+
+    .pin-code {
+      font-family: var(--mono);
+      font-size: 5.5rem;
+      letter-spacing: 0.25em;
+      margin: 24px 0;
+      background: linear-gradient(135deg, #6c5ce7 0%, #00cec9 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 30px rgba(108, 92, 231, 0.4));
+      user-select: all;
+    }
+
+    .progress-bar-wrap {
+      width: 320px;
+      height: 6px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 999px;
+      margin: 0 auto 12px;
+      overflow: hidden;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #6c5ce7, #00cec9);
+      width: 100%;
+      transition: width 1s linear;
+    }
+
+    /* Soru Ekranı */
+    #activeView {
+      display: none;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 24px;
+      flex: 1;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .question-title {
+      font-size: 2rem;
+      font-weight: 800;
+      line-height: 1.4;
+      margin: 20px 0 32px;
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: auto;
+    }
+
+    .option-card {
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      transition: all 0.3s;
+    }
+    .opt-circle {
+      width: 40px; height: 40px; border-radius: 10px;
+      font-weight: 900; font-size: 1.2rem;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .opt-A .opt-circle { background: #6c5ce7; color: #fff; }
+    .opt-B .opt-circle { background: #00cec9; color: #000; }
+    .opt-C .opt-circle { background: #fd79a8; color: #fff; }
+    .opt-D .opt-circle { background: #fdcb6e; color: #000; }
+
+    .option-card.correct {
+      background: rgba(0, 184, 148, 0.25) !important;
+      border: 2px solid var(--success) !important;
+      box-shadow: 0 0 25px rgba(0, 184, 148, 0.3);
+    }
+    .option-card.wrong {
+      opacity: 0.5;
+    }
+
+    /* Sağ Panel: Anti-Cheat & Sonuçlar */
+    .student-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+
+    .student-badge {
+      padding: 12px 8px;
+      border-radius: 12px;
+      text-align: center;
+      background: rgba(116, 185, 255, 0.1);
+      border: 1px solid rgba(116, 185, 255, 0.3);
+      color: #74b9ff;
+      font-weight: 700;
+      animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+    .student-badge.revealed-correct {
+      background: rgba(0, 184, 148, 0.2);
+      border-color: var(--success);
+      color: var(--success);
+    }
+    .student-badge.revealed-wrong {
+      background: rgba(255, 107, 107, 0.2);
+      border-color: var(--danger);
+      color: var(--danger);
+    }
+
+    @keyframes popIn {
+      from { transform: scale(0.7); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+
+    /* Bar Grafiği */
+    .bars-wrap {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 30px 1fr 60px;
+      align-items: center;
+      gap: 12px;
+      font-family: var(--mono);
+      font-weight: 700;
+    }
+    .bar-track {
+      height: 24px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      width: 0%;
+      transition: width 0.8s ease;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="display: flex; align-items: center; gap: 16px;">
+      <div class="logo">⚡ ScanQuiz Tahta</div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="pulse-dot"></span>
+        <span id="connStatus" style="font-size: 0.85rem; color: var(--text-muted);">Yerel Dinlemede (Local Sync)</span>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px;">
+      <a href="host.html" target="_blank" class="btn" style="text-decoration: none;">🎮 Kontrol Panelini Aç (host.html)</a>
+      <button class="btn" onclick="toggleFullScreen()">⛶ Tam Ekran</button>
+    </div>
+  </header>
+
+  <!-- BEKLEME EKRANI (DİNAMİK 20s PIN) -->
+  <main id="idleView">
+    <div class="badge badge-warning" style="margin-bottom: 16px;">⏳ 20 SANİYELİK DİNAMİK EŞLEŞME KODU</div>
+    <h1 style="font-size: 2.2rem; font-weight: 800;">Akıllı Tahtaya Bağlanın</h1>
+    <p style="color: var(--text-muted); margin-top: 8px;">
+      Öğretmen kumandasından (host.html) aşağıdaki 6 haneli kodu girin veya eşleşin.
+    </p>
+
+    <div class="pin-code" id="pinDisplay">------</div>
+
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" id="pinProgress"></div>
+    </div>
+    <div style="font-family: var(--mono); font-size: 0.85rem; color: var(--text-muted);">
+      Kalan Süre: <span id="pinSeconds" style="color: var(--accent-cyan); font-weight: 800;">20</span> sn
+    </div>
+
+    <div style="margin-top: 32px;">
+      <a href="host.html" target="_blank" class="btn" style="background: linear-gradient(135deg, #6c5ce7, #00cec9); border: none; padding: 12px 28px; font-size: 1.1rem; text-decoration: none; display: inline-block;">
+        🚀 Öğretmen Kumandasını Aç (/host)
+      </a>
+    </div>
+  </main>
+
+  <!-- CANLI SORU & CEVAP EKRANI -->
+  <main id="activeView">
+    <!-- Sol: Soru ve Şıklar -->
+    <section class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span class="badge badge-info" id="qBadge">Soru #1</span>
+        <span class="badge badge-warning" id="qStateBadge">● Canlı Yanıtlar Alınıyor</span>
+      </div>
+
+      <h2 class="question-title" id="qText">Soru Yükleniyor...</h2>
+
+      <div class="options-grid">
+        <div class="option-card opt-A" id="cardA">
+          <div class="opt-circle">A</div>
+          <span id="textA" style="font-weight: 600;">Seçenek A</span>
+        </div>
+        <div class="option-card opt-B" id="cardB">
+          <div class="opt-circle">B</div>
+          <span id="textB" style="font-weight: 600;">Seçenek B</span>
+        </div>
+        <div class="option-card opt-C" id="cardC">
+          <div class="opt-circle">C</div>
+          <span id="textC" style="font-weight: 600;">Seçenek C</span>
+        </div>
+        <div class="option-card opt-D" id="cardD">
+          <div class="opt-circle">D</div>
+          <span id="textD" style="font-weight: 600;">Seçenek D</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Sağ: Anti-Cheat Canlı Akış & Yüzdeler -->
+    <section class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <div>
+          <h3 id="panelTitle" style="font-size: 1.2rem; font-weight: 800;">🛡️ Anti-Cheat Canlı Akış</h3>
+          <p id="panelSub" style="font-size: 0.8rem; color: var(--text-muted);">
+            Seçenekler gizlidir, kimse kimsenin cevabını göremez.
+          </p>
+        </div>
+        <div style="text-align: right;">
+          <span id="respCount" style="font-size: 2rem; font-weight: 900; font-family: var(--mono); color: var(--accent-cyan);">0</span>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">Yanıt</div>
+        </div>
+      </div>
+
+      <!-- Soru Bitince Açılan Bar Grafiği -->
+      <div class="bars-wrap" id="barsWrap">
+        <div class="bar-row">
+          <span style="color: #6c5ce7;">A</span>
+          <div class="bar-track"><div class="bar-fill" id="barFillA" style="background: #6c5ce7;"></div></div>
+          <span id="barPctA">0%</span>
+        </div>
+        <div class="bar-row">
+          <span style="color: #00cec9;">B</span>
+          <div class="bar-track"><div class="bar-fill" id="barFillB" style="background: #00cec9;"></div></div>
+          <span id="barPctB">0%</span>
+        </div>
+        <div class="bar-row">
+          <span style="color: #fd79a8;">C</span>
+          <div class="bar-track"><div class="bar-fill" id="barFillC" style="background: #fd79a8;"></div></div>
+          <span id="barPctC">0%</span>
+        </div>
+        <div class="bar-row">
+          <span style="color: #fdcb6e;">D</span>
+          <div class="bar-track"><div class="bar-fill" id="barFillD" style="background: #fdcb6e;"></div></div>
+          <span id="barPctD">0%</span>
+        </div>
+      </div>
+
+      <!-- Öğrenci Kartları -->
+      <div class="student-grid" id="studentGrid"></div>
+    </section>
+  </main>
+
+  <script>
+    // --- SES MOTORU (Web Audio API) ---
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    let actx = null;
+    function playBeep(freq, type, dur) {
+      try {
+        if (!actx) actx = new AudioCtx();
+        if (actx.state === 'suspended') actx.resume();
+        const osc = actx.createOscillator();
+        const gain = actx.createGain();
+        osc.type = type || 'sine';
+        osc.frequency.setValueAtTime(freq, actx.currentTime);
+        gain.gain.setValueAtTime(0.15, actx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+        osc.connect(gain);
+        gain.connect(actx.destination);
+        osc.start();
+        osc.stop(actx.currentTime + dur);
+      } catch (e) {}
+    }
+
+    // --- YEREL VE SEKMELER ARASI HABERLEŞME (BroadcastChannel & LocalStorage) ---
+    const bus = new BroadcastChannel('scanquiz_local_sync');
+    function sendEvent(event, payload) {
+      const pkt = { event, payload, ts: Date.now() };
+      bus.postMessage(pkt);
+      localStorage.setItem('scanquiz_bus_event', JSON.stringify(pkt));
+    }
+
+    function onMessage(data) {
+      if (!data || !data.event) return;
+      const { event, payload } = data;
+
+      if (event === 'host_paired') {
+        document.getElementById('connStatus').innerText = 'Kumanda Bağlandı ✅';
+        playBeep(880, 'sine', 0.15);
+      }
+      else if (event === 'start_question') {
+        showQuestion(payload);
+        playBeep(523.25, 'triangle', 0.2);
+      }
+      else if (event === 'student_submitted') {
+        // Anti-cheat: Şık bilgisi YOKTUR!
+        addStudentSubmission(payload.studentId);
+        playBeep(700, 'sine', 0.08);
+      }
+      else if (event === 'end_question') {
+        revealResults(payload);
+        playBeep(1046.5, 'triangle', 0.4);
+      }
+      else if (event === 'reset_question') {
+        resetToIdle();
+      }
+    }
+
+    bus.onmessage = (e) => onMessage(e.data);
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'scanquiz_bus_event' && e.newValue) {
+        try { onMessage(JSON.parse(e.newValue)); } catch (err) {}
+      }
+    });
+
+    // --- 20 SANİYELİK DİNAMİK PIN SİSTEMİ ---
+    let currentPin = '';
+    let pinSec = 20;
+    let isQuestionActive = false;
+
+    function generatePin() {
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
+      currentPin = pin;
+      document.getElementById('pinDisplay').innerText = pin;
+      localStorage.setItem('scanquiz_active_pin', pin);
+      sendEvent('pin_rotated', { pin });
+    }
+
+    generatePin();
+    setInterval(() => {
+      if (isQuestionActive) return;
+      pinSec--;
+      if (pinSec <= 0) {
+        pinSec = 20;
+        generatePin();
+      }
+      document.getElementById('pinSeconds').innerText = pinSec;
+      document.getElementById('pinProgress').style.width = ((pinSec / 20) * 100) + '%';
+    }, 1000);
+
+    // --- SORU YÖNETİMİ ---
+    let currentQuestion = null;
+    const submissions = new Map();
+
+    function showQuestion(q) {
+      isQuestionActive = true;
+      currentQuestion = q;
+      submissions.clear();
+
+      document.getElementById('idleView').style.display = 'none';
+      document.getElementById('activeView').style.display = 'grid';
+
+      document.getElementById('qBadge').innerText = 'Soru #' + (q.id || 1);
+      document.getElementById('qStateBadge').innerText = '● Canlı Yanıtlar Alınıyor';
+      document.getElementById('qStateBadge').className = 'badge badge-warning';
+      document.getElementById('qText').innerText = q.text;
+
+      document.getElementById('textA').innerText = q.options.A || '-';
+      document.getElementById('textB').innerText = q.options.B || '-';
+      document.getElementById('textC').innerText = q.options.C || '-';
+      document.getElementById('textD').innerText = q.options.D || '-';
+
+      // Şık sınıflarını temizle
+      ['A', 'B', 'C', 'D'].forEach(k => {
+        const el = document.getElementById('card' + k);
+        el.className = 'option-card opt-' + k;
+      });
+
+      document.getElementById('panelTitle').innerText = '🛡️ Anti-Cheat Canlı Akış';
+      document.getElementById('panelSub').innerText = 'Seçenekler gizlidir, sadece kartı havaya kalkanlar görünür.';
+      document.getElementById('barsWrap').style.display = 'none';
+      document.getElementById('studentGrid').innerHTML = '';
+      document.getElementById('respCount').innerText = '0';
+    }
+
+    function addStudentSubmission(studentId) {
+      if (submissions.has(studentId)) return;
+      submissions.set(studentId, { status: 'SUBMITTED' });
+
+      document.getElementById('respCount').innerText = submissions.size;
+
+      const badge = document.createElement('div');
+      badge.id = 'stud-' + studentId;
+      badge.className = 'student-badge';
+      badge.innerHTML = `<div>#${studentId}</div><div style="font-size:0.75rem;margin-top:2px;">🎴 Gönderildi</div>`;
+      document.getElementById('studentGrid').appendChild(badge);
+    }
+
+    function revealResults(data) {
+      // data: { correctAnswer: 'A', results: { [sId]: 'B' }, stats: { A:1, B:0, ... } }
+      document.getElementById('qStateBadge').innerText = '✓ Soru Tamamlandı';
+      document.getElementById('qStateBadge').className = 'badge badge-success';
+      document.getElementById('panelTitle').innerText = '📊 Sınıf Analitiği';
+      document.getElementById('panelSub').innerText = 'Cevaplar ve doğru/yanlış oranları açığa çıktı.';
+
+      // Doğru şıkkı yeşille vurgula
+      ['A', 'B', 'C', 'D'].forEach(k => {
+        const el = document.getElementById('card' + k);
+        if (k === data.correctAnswer) {
+          el.classList.add('correct');
+        } else {
+          el.classList.add('wrong');
+        }
+      });
+
+      // Bar grafiğini doldur
+      const total = submissions.size || 1;
+      document.getElementById('barsWrap').style.display = 'flex';
+      ['A', 'B', 'C', 'D'].forEach(k => {
+        const count = (data.stats && data.stats[k]) || 0;
+        const pct = Math.round((count / total) * 100);
+        document.getElementById('barFill' + k).style.width = Math.max(pct, 4) + '%';
+        document.getElementById('barPct' + k).innerText = '%' + pct + ' (' + count + ')';
+      });
+
+      // Öğrenci kartlarını renklendir
+      if (data.results) {
+        Object.entries(data.results).forEach(([sId, choice]) => {
+          const el = document.getElementById('stud-' + sId);
+          if (el) {
+            const isCorr = choice === data.correctAnswer;
+            el.className = 'student-badge ' + (isCorr ? 'revealed-correct' : 'revealed-wrong');
+            el.innerHTML = `<div>#${sId}</div><div style="font-size:1.1rem;font-weight:900;">${choice} ${isCorr ? '✅' : '❌'}</div>`;
+          }
+        });
+      }
+    }
+
+    function resetToIdle() {
+      isQuestionActive = false;
+      document.getElementById('activeView').style.display = 'none';
+      document.getElementById('idleView').style.display = 'block';
+      pinSec = 20;
+      generatePin();
+    }
+
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(()=>{});
+      } else {
+        document.exitFullscreen().catch(()=>{});
+      }
+    }
+  </script>
+</body>
+</html>
