@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="380" viewBox="0 0 280 380">
+  <style>
+    .label { font-family: 'Segoe UI', Arial, sans-serif; font-weight: 900; font-size: 18px; text-anchor: middle; }
+    .id-label { font-family: monospace; font-weight: 800; font-size: 16px; text-anchor: middle; fill: #333; }
+    .name-label { font-family: 'Segoe UI', Arial, sans-serif; font-weight: 600; font-size: 12px; text-anchor: middle; fill: #666; }
+  </style>
+  
+  <!-- Kart Çerçevesi -->
+  <rect x="2" y="2" width="276" height="376" rx="14" ry="14" fill="white" stroke="#888" stroke-width="2" stroke-dasharray="8,4"/>
+  
+  <!-- Üst: A (Kırmızı) -->
+  <text x="140" y="28" class="label" fill="#dc2626">▲ A</text>
+  
+  <!-- Sol: D (Yeşil) -->
+  <text x="20" y="190" class="label" fill="#16a34a" transform="rotate(-90 20 190)">▲ D</text>
+  
+  <!-- Sağ: B (Mavi) -->
+  <text x="260" y="190" class="label" fill="#2563eb" transform="rotate(90 260 190)">▲ B</text>
+  
+  <!-- Alt: C (Sarı/Turuncu) -->
+  <text x="140" y="366" class="label" fill="#d97706">▼ C</text>
+  
+  <!-- ArUco Marker -->
+  <rect x="61" y="101" width="158" height="158" fill="#000"/>
+  <rect x="65" y="105" width="25" height="25" fill="#000000"/><rect x="90" y="105" width="25" height="25" fill="#000000"/><rect x="115" y="105" width="25" height="25" fill="#000000"/><rect x="140" y="105" width="25" height="25" fill="#000000"/><rect x="165" y="105" width="25" height="25" fill="#000000"/><rect x="190" y="105" width="25" height="25" fill="#000000"/><rect x="65" y="130" width="25" height="25" fill="#000000"/><rect x="90" y="130" width="25" height="25" fill="#ffffff"/><rect x="115" y="130" width="25" height="25" fill="#000000"/><rect x="140" y="130" width="25" height="25" fill="#ffffff"/><rect x="165" y="130" width="25" height="25" fill="#000000"/><rect x="190" y="130" width="25" height="25" fill="#000000"/><rect x="65" y="155" width="25" height="25" fill="#000000"/><rect x="90" y="155" width="25" height="25" fill="#ffffff"/><rect x="115" y="155" width="25" height="25" fill="#000000"/><rect x="140" y="155" width="25" height="25" fill="#ffffff"/><rect x="165" y="155" width="25" height="25" fill="#000000"/><rect x="190" y="155" width="25" height="25" fill="#000000"/><rect x="65" y="180" width="25" height="25" fill="#000000"/><rect x="90" y="180" width="25" height="25" fill="#000000"/><rect x="115" y="180" width="25" height="25" fill="#ffffff"/><rect x="140" y="180" width="25" height="25" fill="#000000"/><rect x="165" y="180" width="25" height="25" fill="#ffffff"/><rect x="190" y="180" width="25" height="25" fill="#000000"/><rect x="65" y="205" width="25" height="25" fill="#000000"/><rect x="90" y="205" width="25" height="25" fill="#000000"/><rect x="115" y="205" width="25" height="25" fill="#ffffff"/><rect x="140" y="205" width="25" height="25" fill="#000000"/><rect x="165" y="205" width="25" height="25" fill="#ffffff"/><rect x="190" y="205" width="25" height="25" fill="#000000"/><rect x="65" y="230" width="25" height="25" fill="#000000"/><rect x="90" y="230" width="25" height="25" fill="#000000"/><rect x="115" y="230" width="25" height="25" fill="#000000"/><rect x="140" y="230" width="25" height="25" fill="#000000"/><rect x="165" y="230" width="25" height="25" fill="#000000"/><rect x="190" y="230" width="25" height="25" fill="#000000"/>
+  
+  <!-- Öğrenci Numarası -->
+  <text x="140" y="290" class="id-label">#29</text>
+  
+  <!-- İsim yeri (el yazısı için boş satır) -->
+  <line x1="90" y1="307" x2="190" y2="307" stroke="#ccc" stroke-width="1"/>
+</svg>

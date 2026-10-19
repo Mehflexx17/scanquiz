@@ -41,7 +41,12 @@ export default function HostControlPage() {
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
   const [importStatus, setImportStatus] = useState('');
 
-  // Sınıf Listesi
+  // Sınıflar ve Öğrenci Listesi
+  const [classes, setClasses] = useState({
+    '9-A': { 1: 'Ali Yılmaz', 2: 'Ayşe Kaya', 3: 'Mehmet Demir', 4: 'Zeynep Bal', 5: 'Can Sarı' },
+    '9-B': { 1: 'Burak Şen', 2: 'Elif Yıldız', 3: 'Emre Ak', 4: 'Gamze Kara', 5: 'Oğuzhan Tekin' }
+  });
+  const [currentClass, setCurrentClass] = useState('9-A');
   const [roster, setRoster] = useState({
     1: 'Ali Yılmaz',
     2: 'Ayşe Kaya',
@@ -49,18 +54,35 @@ export default function HostControlPage() {
     4: 'Zeynep Bal',
     5: 'Can Sarı'
   });
+  const [newClassName, setNewClassName] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [bulkNames, setBulkNames] = useState('');
 
   const fileInputRef = useRef(null);
 
-  // Yerel Roster'ı yükle
+  // Yerel Sınıflar ve Roster'ı yükle
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem('scanquiz_roster');
-        if (saved) setRoster(JSON.parse(saved));
+        const savedClasses = localStorage.getItem('scanquiz_classes');
+        const savedCurrent = localStorage.getItem('scanquiz_current_class');
+        if (savedClasses) {
+          const parsed = JSON.parse(savedClasses);
+          setClasses(parsed);
+          const active = savedCurrent && parsed[savedCurrent] ? savedCurrent : Object.keys(parsed)[0];
+          if (active) {
+            setCurrentClass(active);
+            setRoster(parsed[active] || {});
+          }
+        } else {
+          const savedRoster = localStorage.getItem('scanquiz_roster');
+          if (savedRoster) {
+            const parsed = JSON.parse(savedRoster);
+            setRoster(parsed);
+            setClasses({ '9-A': parsed });
+          }
+        }
       } catch (e) {}
     }
   }, []);
@@ -158,10 +180,69 @@ export default function HostControlPage() {
     syncEngine.emit('reset_question', {});
   };
 
-  // Roster Güncellemeleri
+  // Sınıf ve Roster Güncellemeleri
+  const handleSelectClass = (cName) => {
+    setCurrentClass(cName);
+    const targetRoster = classes[cName] || {};
+    setRoster(targetRoster);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('scanquiz_current_class', cName);
+      localStorage.setItem('scanquiz_roster', JSON.stringify(targetRoster));
+    }
+    syncEngine.emit('roster_updated', targetRoster);
+  };
+
+  const handleAddClass = () => {
+    const trimmed = newClassName.trim().toUpperCase();
+    if (!trimmed) return;
+    if (classes[trimmed]) {
+      alert('Bu sınıf zaten mevcut!');
+      return;
+    }
+    const updatedClasses = { ...classes, [trimmed]: {} };
+    setClasses(updatedClasses);
+    setCurrentClass(trimmed);
+    setRoster({});
+    setNewClassName('');
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('scanquiz_classes', JSON.stringify(updatedClasses));
+      localStorage.setItem('scanquiz_current_class', trimmed);
+      localStorage.setItem('scanquiz_roster', JSON.stringify({}));
+    }
+    syncEngine.emit('roster_updated', {});
+  };
+
+  const handleDeleteClass = (cName) => {
+    const classKeys = Object.keys(classes);
+    if (classKeys.length <= 1) {
+      alert('En az bir sınıf kalmalıdır!');
+      return;
+    }
+    if (!confirm(`"${cName}" sınıfını silmek istediğinize emin misiniz?`)) return;
+
+    const updatedClasses = { ...classes };
+    delete updatedClasses[cName];
+    setClasses(updatedClasses);
+
+    const fallback = Object.keys(updatedClasses)[0];
+    setCurrentClass(fallback);
+    const targetRoster = updatedClasses[fallback] || {};
+    setRoster(targetRoster);
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('scanquiz_classes', JSON.stringify(updatedClasses));
+      localStorage.setItem('scanquiz_current_class', fallback);
+      localStorage.setItem('scanquiz_roster', JSON.stringify(targetRoster));
+    }
+    syncEngine.emit('roster_updated', targetRoster);
+  };
+
   const saveRoster = (newRoster) => {
     setRoster(newRoster);
+    const updatedClasses = { ...classes, [currentClass]: newRoster };
+    setClasses(updatedClasses);
     if (typeof window !== 'undefined') {
+      localStorage.setItem('scanquiz_classes', JSON.stringify(updatedClasses));
       localStorage.setItem('scanquiz_roster', JSON.stringify(newRoster));
     }
     syncEngine.emit('roster_updated', newRoster);
@@ -194,7 +275,7 @@ export default function HostControlPage() {
     });
     saveRoster(updated);
     setBulkNames('');
-    alert(`${lines.length} adet öğrenci eklendi.`);
+    alert(`${lines.length} adet öğrenci ${currentClass} sınıfına eklendi.`);
   };
 
   const handleFileUpload = async (file) => {
@@ -229,9 +310,31 @@ export default function HostControlPage() {
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: '#0e1017', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-subtle)', gap: '6px' }}>
+            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Sınıf:</span>
+            <select
+              value={currentClass}
+              onChange={(e) => handleSelectClass(e.target.value)}
+              style={{
+                background: 'transparent',
+                color: 'var(--primary)',
+                border: 'none',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              {Object.keys(classes).map((cName) => (
+                <option key={cName} value={cName} style={{ background: '#131620', color: '#fff' }}>
+                  {cName} ({Object.keys(classes[cName] || {}).length} Öğr.)
+                </option>
+              ))}
+            </select>
+          </div>
           <button onClick={() => setIsRosterModalOpen(true)} className="btn btn-sm">
-            Öğrenci Listesi
+            Sınıflar & Öğrenci Listesi
           </button>
           <button onClick={() => setIsPrintModalOpen(true)} className="btn btn-sm">
             Kartları Yazdır
@@ -491,23 +594,99 @@ export default function HostControlPage() {
         </div>
       </div>
 
-      {/* Sınıf Listesi Modalı */}
+      {/* Sınıf & Öğrenci Listesi Modalı */}
       {isRosterModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-          <div className="panel" style={{ maxWidth: '580px', width: '100%', padding: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700 }}>Öğrenci Listesi & İsim Eşleme</h3>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+          <div className="panel" style={{ maxWidth: '640px', width: '100%', padding: '24px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Sınıflar & Öğrenci Eşleme</h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Plickers mantığı: Kartlar sabit, her sınıf için sadece isimleri eşleyin.
+                </p>
+              </div>
               <button onClick={() => setIsRosterModalOpen(false)} className="btn btn-sm">✕</button>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+            {/* Plickers Bilgilendirme Kutusu */}
+            <div style={{
+              background: 'rgba(99, 102, 241, 0.08)',
+              border: '1px solid rgba(99, 102, 241, 0.25)',
+              borderRadius: '8px',
+              padding: '12px 14px',
+              marginBottom: '18px',
+              fontSize: '0.82rem',
+              lineHeight: '1.45',
+              color: '#c7d2fe'
+            }}>
+              <strong>💡 Nasıl Çalışır? (Plickers Mantığı):</strong>
+              <div style={{ marginTop: '4px' }}>
+                • <strong>Kartlar Kalıcıdır:</strong> 1-50 arası kartları bir kere yazdırın. Her tur veya soru için yeni kart gerekmez!
+              </div>
+              <div>
+                • <strong>Çoklu Sınıf:</strong> 9-A, 10-B gibi farklı sınıflara girerken kartlar değişmez. Sadece buradan sınıfı seçin. 1 numaralı kart o sınıftaki 1. öğrenciye verilir.
+              </div>
+              <div>
+                • <strong>Cevap Verme:</strong> Öğrenci seçtiği şıkkı (A, B, C veya D) en üste gelecek şekilde kartı çevirip kameraya gösterir.
+              </div>
+            </div>
+
+            {/* Sınıf Seçimi ve Yeni Sınıf Ekleme */}
+            <div style={{ background: '#0e1017', padding: '12px 14px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>Aktif Sınıf:</span>
+                  <select
+                    value={currentClass}
+                    onChange={(e) => handleSelectClass(e.target.value)}
+                    className="input"
+                    style={{ padding: '6px 10px', fontSize: '0.85rem', fontWeight: 700 }}
+                  >
+                    {Object.keys(classes).map((cName) => (
+                      <option key={cName} value={cName}>
+                        {cName} ({Object.keys(classes[cName] || {}).length} Öğrenci)
+                      </option>
+                    ))}
+                  </select>
+                  {Object.keys(classes).length > 1 && (
+                    <button
+                      onClick={() => handleDeleteClass(currentClass)}
+                      className="btn btn-sm"
+                      style={{ color: 'var(--danger)', fontSize: '0.75rem', padding: '4px 8px' }}
+                      title="Bu sınıfı sil"
+                    >
+                      Sil
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <input
+                    type="text"
+                    placeholder="Yeni Sınıf (örn: 10-B)"
+                    value={newClassName}
+                    onChange={(e) => setNewClassName(e.target.value)}
+                    className="input"
+                    style={{ width: '130px', padding: '6px 8px', fontSize: '0.82rem' }}
+                  />
+                  <button onClick={handleAddClass} className="btn btn-sm btn-primary">
+                    + Sınıf Aç
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Tekli Öğrenci Ekleme */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
               <input
                 type="number"
-                placeholder="No (Örn: 6)"
+                placeholder="Kart No (1-50)"
+                min={1}
+                max={50}
                 value={newStudentId}
                 onChange={(e) => setNewStudentId(e.target.value)}
                 className="input"
-                style={{ width: '100px' }}
+                style={{ width: '120px' }}
               />
               <input
                 type="text"
@@ -517,29 +696,48 @@ export default function HostControlPage() {
                 className="input"
                 style={{ flex: 1 }}
               />
-              <button onClick={addStudent} className="btn btn-success">+ Ekle</button>
+              <button onClick={addStudent} className="btn btn-success">
+                + Ekle
+              </button>
             </div>
 
-            <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+            {/* Öğrenci Listesi Grid */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                {currentClass} Sınıfı Öğrencileri ({Object.keys(roster).length})
+              </span>
+            </div>
+
+            <div style={{ maxHeight: '180px', overflowY: 'auto', marginBottom: '16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
               {Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([sId, sName]) => (
-                <div key={sId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#0e1017', borderRadius: '6px', fontSize: '0.85rem' }}>
-                  <span><strong>#{sId}</strong> {sName}</span>
-                  <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer' }}>✕</button>
+                <div key={sId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#0e1017', borderRadius: '6px', fontSize: '0.82rem', border: '1px solid var(--border-subtle)' }}>
+                  <span><strong style={{ color: 'var(--primary)' }}>Kart #{sId}:</strong> {sName}</span>
+                  <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: '2px 6px' }}>✕</button>
                 </div>
               ))}
+              {Object.keys(roster).length === 0 && (
+                <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '16px', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
+                  Bu sınıfta henüz kayıtlı öğrenci yok. Yukarıdan ekleyin veya aşağıya toplu yapıştırın.
+                </div>
+              )}
             </div>
 
+            {/* Toplu Liste Yapıştırma */}
             <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>Toplu İsim Yapıştır (Alt alta):</div>
+              <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '4px' }}>
+                Toplu İsim Yapıştır (Her satır sırasıyla 1, 2, 3... numaralı karta atanır):
+              </div>
               <textarea
-                rows={2}
+                rows={3}
                 value={bulkNames}
                 onChange={(e) => setBulkNames(e.target.value)}
-                placeholder="Ali Yılmaz&#10;Ayşe Kaya"
+                placeholder="Ali Yılmaz&#10;Ayşe Kaya&#10;Mehmet Demir"
                 className="input"
-                style={{ marginBottom: '8px', fontSize: '0.82rem' }}
+                style={{ marginBottom: '8px', fontSize: '0.82rem', width: '100%' }}
               />
-              <button onClick={handleBulkImport} className="btn btn-sm" style={{ width: '100%' }}>Toplu Listeyi Aktar</button>
+              <button onClick={handleBulkImport} className="btn btn-sm btn-primary" style={{ width: '100%' }}>
+                {currentClass} Sınıfına Toplu Listeyi Aktar
+              </button>
             </div>
           </div>
         </div>
@@ -548,6 +746,7 @@ export default function HostControlPage() {
       <PrintableCardsModal
         isOpen={isPrintModalOpen}
         onClose={() => setIsPrintModalOpen(false)}
+        roster={roster}
       />
     </div>
   );
