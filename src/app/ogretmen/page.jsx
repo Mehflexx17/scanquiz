@@ -6,44 +6,97 @@ import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectR
 import { syncEngine } from '@/lib/sync-engine';
 import { requestCameraWithGesture, configureVideoForIOS } from '@/lib/ios-safari-compat';
 import { soundEffects } from '@/lib/sound-effects';
-import { calculateRotationAngle, angleToChoice } from '@/lib/angle-math';
 import { parseQuizFile } from '@/lib/file-parser';
+import { detectArucoMarkers } from '@/lib/aruco-detector';
 import { saveUserDataToCloud, loadUserDataFromCloud } from '@/lib/user-data-sync';
 
-const DEFAULT_QUESTIONS = [
+// Varsayılan Test Setleri (Sonsuz test desteği)
+const INITIAL_TESTS = [
   {
-    id: 1,
-    text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?',
-    options: { A: '1919', B: '1920', C: '1923', D: '1938' },
-    correctAnswer: 'C'
+    id: 'test_1',
+    name: '8. Sınıf Fen & Genel Kültür',
+    questions: [
+      {
+        id: 1,
+        text: 'Türkiye Cumhuriyeti hangi yılda ilan edilmiştir?',
+        options: { A: '1919', B: '1920', C: '1923', D: '1938' },
+        correctAnswer: 'C'
+      },
+      {
+        id: 2,
+        text: 'Güneş sistemindeki en büyük gezegen hangisidir?',
+        options: { A: 'Mars', B: 'Jüpiter', C: 'Satürn', D: 'Dünya' },
+        correctAnswer: 'B'
+      },
+      {
+        id: 3,
+        text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?',
+        options: { A: 'H2O', B: 'CO2', C: 'NaCl', D: 'O2' },
+        correctAnswer: 'A'
+      }
+    ]
   },
   {
-    id: 2,
-    text: 'Güneş sistemindeki en büyük gezegen hangisidir?',
-    options: { A: 'Mars', B: 'Jüpiter', C: 'Satürn', D: 'Dünya' },
-    correctAnswer: 'B'
-  },
-  {
-    id: 3,
-    text: 'Suyun kimyasal formülü aşağıdakilerden hangisidir?',
-    options: { A: 'H2O', B: 'CO2', C: 'NaCl', D: 'O2' },
-    correctAnswer: 'A'
+    id: 'test_2',
+    name: '8. Sınıf Matematik & Mantık',
+    questions: [
+      {
+        id: 1,
+        text: 'Karekök 144 sayısı aşağıdakilerden hangisine eşittir?',
+        options: { A: '10', B: '12', C: '14', D: '16' },
+        correctAnswer: 'B'
+      },
+      {
+        id: 2,
+        text: 'Bir üçgenin iç açıları toplamı kaç derecedir?',
+        options: { A: '90°', B: '180°', C: '270°', D: '360°' },
+        correctAnswer: 'B'
+      }
+    ]
   }
 ];
 
+// Varsayılan Sınıflar (8/A, 8/B ve Hoca İsimleri)
+const INITIAL_CLASSES = {
+  '8/A': {
+    name: '8/A',
+    teacherName: 'Mehmet Hoca',
+    students: {
+      1: 'Ali Yılmaz', 2: 'Ayşe Kaya', 3: 'Mehmet Demir', 4: 'Zeynep Bal', 5: 'Can Sarı',
+      6: 'Burak Şen', 7: 'Elif Yıldız', 8: 'Emre Ak', 9: 'Gamze Kara', 10: 'Oğuzhan Tekin'
+    }
+  },
+  '8/B': {
+    name: '8/B',
+    teacherName: 'Fatma Hoca',
+    students: {
+      1: 'Ahmet Çelik', 2: 'Büşra Aydın', 3: 'Cemre Koç', 4: 'Deniz Şahin', 5: 'Ece Yavuz',
+      6: 'Furkan Güler', 7: 'Gizem Doğan', 8: 'Hakan Polat', 9: 'İrem Aslan', 10: 'Kaan Taş'
+    }
+  },
+  '9/A': {
+    name: '9/A',
+    teacherName: 'Ahmet Hoca',
+    students: {
+      1: 'Murat Öz', 2: 'Seda Kurt', 3: 'Tolga Çetin', 4: 'Yagmur Er', 5: 'Zeki Can'
+    }
+  }
+};
+
 export default function OgretmenScannerPage() {
-  // 1. Firebase Auth Durumu
+  // 1. Firebase Google Auth
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [guestBypass, setGuestBypass] = useState(false);
 
-  // 2. PIN & Eşleşme
+  // 2. PIN & Tahta Eşleşmesi
   const [pin, setPin] = useState('');
   const [isPaired, setIsPaired] = useState(false);
 
-  // 3. Aktif Mobil Sekmesi ('camera' | 'questions' | 'classes')
+  // 3. Mobil Sekmesi ('camera' | 'questions' | 'classes' | 'summary')
   const [activeTab, setActiveTab] = useState('camera');
 
-  // 4. Kamera & OpenCV
+  // 4. Kamera & ArUco Algılayıcı
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [openCvReady, setOpenCvReady] = useState(false);
@@ -51,15 +104,24 @@ export default function OgretmenScannerPage() {
   const [recentDetections, setRecentDetections] = useState([]);
   const [facingMode, setFacingMode] = useState('environment');
 
-  // 5. Quiz & Soru Yönetimi (Telefondan Kontrol)
-  const [questions, setQuestions] = useState(DEFAULT_QUESTIONS);
+  // 5. Sonsuz Test Yönetimi & Soru Havuzu
+  const [tests, setTests] = useState(INITIAL_TESTS);
+  const [activeTestId, setActiveTestId] = useState('test_1');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [activeQuestion, setActiveQuestion] = useState(null);
   const [questionState, setQuestionState] = useState('IDLE'); // 'IDLE' | 'RUNNING' | 'ENDED'
   const [submissions, setSubmissions] = useState(new Map());
   const [importStatus, setImportStatus] = useState('');
+  
+  // Test Geçmişi & Kümülatif Sonuçlar (Test Sonu Raporu için)
+  const [testQuestionResults, setTestQuestionResults] = useState({}); // { [qId]: { results, correctAnswer, stats } }
+  const [quizSummary, setQuizSummary] = useState(null);
 
-  // Soru Oluşturucu Form State
+  // Yeni Test Ekleme Modal / State
+  const [showNewTestModal, setShowNewTestModal] = useState(false);
+  const [newTestTitle, setNewTestTitle] = useState('');
+
+  // Yeni Soru Form State
   const [showQuestionCreator, setShowQuestionCreator] = useState(false);
   const [newQuestionText, setNewQuestionText] = useState('');
   const [newOptA, setNewOptA] = useState('');
@@ -68,14 +130,12 @@ export default function OgretmenScannerPage() {
   const [newOptD, setNewOptD] = useState('');
   const [newCorrectAnswer, setNewCorrectAnswer] = useState('A');
 
-  // 6. Sınıflar & Roster Yönetimi
-  const [classes, setClasses] = useState({
-    '9-A': { 1: 'Ali Yılmaz', 2: 'Ayşe Kaya', 3: 'Mehmet Demir', 4: 'Zeynep Bal', 5: 'Can Sarı' },
-    '9-B': { 1: 'Burak Şen', 2: 'Elif Yıldız', 3: 'Emre Ak', 4: 'Gamze Kara', 5: 'Oğuzhan Tekin' }
-  });
-  const [currentClass, setCurrentClass] = useState('9-A');
-  const [roster, setRoster] = useState({});
+  // 6. Sınıflar (8/A, 8/B) ve Hoca İsimleri
+  const [classes, setClasses] = useState(INITIAL_CLASSES);
+  const [currentClassKey, setCurrentClassKey] = useState('8/A');
+  const [currentTeacherName, setCurrentTeacherName] = useState('Mehmet Hoca');
   const [newClassName, setNewClassName] = useState('');
+  const [newTeacherInput, setNewTeacherInput] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
   const [bulkNames, setBulkNames] = useState('');
@@ -88,14 +148,18 @@ export default function OgretmenScannerPage() {
   const cvRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // 1. Firebase Auth Listener & Mobil Yönlendirme Sonucu
+  // Aktif test soruları
+  const activeTest = tests.find(t => t.id === activeTestId) || tests[0] || { questions: [] };
+  const currentQuestions = activeTest.questions || [];
+  const currentRoster = classes[currentClassKey]?.students || {};
+
+  // 1. Firebase Auth Listener & Mobil Redirect Sonucu
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
       return;
     }
 
-    // Mobil tarayıcı yönlendirme ile giriş sonucunu yakala
     getRedirectResult(auth).then((result) => {
       if (result && result.user) {
         setUser({
@@ -118,13 +182,7 @@ export default function OgretmenScannerPage() {
           photoURL: fbUser.photoURL
         });
       } else {
-        // Oturum açılmamışsa da öğretmen arayüzüne serbest erişim ver
-        setUser({
-          id: 'teacher_guest',
-          email: '',
-          displayName: 'Öğretmen',
-          photoURL: null
-        });
+        setUser(null);
       }
       setAuthLoading(false);
     });
@@ -132,27 +190,29 @@ export default function OgretmenScannerPage() {
     return () => unsub();
   }, []);
 
-  // Kullanıcı değiştiğinde veya Google ile girdiğinde buluttaki soruları & sınıfları yükle
+  // Google Girişinden Sonra Kullanıcının Buluttaki Testlerini ve Sınıflarını Yükle
   useEffect(() => {
-    if (user && user.id && user.id !== 'teacher_guest') {
+    if (user && user.id) {
       loadUserDataFromCloud(user.id).then((cloudData) => {
-        if (cloudData.questions && cloudData.questions.length > 0) {
-          setQuestions(cloudData.questions);
+        if (cloudData.tests && cloudData.tests.length > 0) {
+          setTests(cloudData.tests);
+          if (cloudData.activeTestId) setActiveTestId(cloudData.activeTestId);
         }
         if (cloudData.classes && Object.keys(cloudData.classes).length > 0) {
           setClasses(cloudData.classes);
-          const active = Object.keys(cloudData.classes)[0];
-          setCurrentClass(active);
-          setRoster(cloudData.classes[active] || {});
+          const firstKey = Object.keys(cloudData.classes)[0];
+          setCurrentClassKey(firstKey);
+          setCurrentTeacherName(cloudData.classes[firstKey]?.teacherName || 'Ders Öğretmeni');
         }
       });
     }
   }, [user?.id]);
 
-  // Google ile Giriş Yap (Firebase - Mobilde Yönlendirmeli, Masaüstünde Popup)
+  // Google ile Giriş Yap (Mobilde Redirect, Masaüstünde Popup)
   const handleGoogleLogin = async () => {
     if (!auth) {
-      alert('Firebase Auth henüz hazır değil. Misafir modunda kısıtlamasız devam edebilirsiniz.');
+      alert('Firebase yapılandırması yüklenemedi. Geliştirici modunda devam edebilirsiniz.');
+      setGuestBypass(true);
       return;
     }
     const isMobileDevice = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -165,11 +225,10 @@ export default function OgretmenScannerPage() {
     } catch (err) {
       console.error('Google giriş hatası:', err);
       if (err.code === 'auth/popup-blocked') {
-        try {
-          await signInWithRedirect(auth, googleProvider);
-        } catch (e) {}
+        try { await signInWithRedirect(auth, googleProvider); } catch (e) {}
       } else if (err.code === 'auth/unauthorized-domain') {
-        alert(`Firebase Yetki Uyarısı:\n"${window.location.hostname}" adresi Firebase Konsolu > Authentication > Settings > Authorized Domains kısmına eklenmelidir.\n\nBilgi: Oturum açmadan da kamerayı, soruları ve sınıfı eksiksiz kullanabilirsiniz!`);
+        alert(`Firebase Yetki Uyarısı:\n"${window.location.hostname}" adresi Firebase Konsolu > Authentication > Settings > Authorized Domains kısmına eklenmelidir.\n\nBilgi: Geliştirici modu ile devam edebilirsiniz.`);
+        setGuestBypass(true);
       } else {
         alert('Giriş yapılamadı: ' + err.message);
       }
@@ -180,10 +239,22 @@ export default function OgretmenScannerPage() {
     if (auth) {
       try { await fbSignOut(auth); } catch (e) {}
     }
-    setUser({ id: 'teacher_guest', email: '', displayName: 'Öğretmen', photoURL: null });
+    setUser(null);
+    setGuestBypass(false);
   };
 
-  // Tahtadan yanıt (ACK) gelirse eşleşmeyi doğrula
+  // URL'den PIN parametresi varsa otomatik doldur
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlPin = urlParams.get('pin');
+      if (urlPin && urlPin.length >= 4) {
+        setPin(urlPin);
+      }
+    }
+  }, []);
+
+  // Tahtadan ACK gelirse eşleşmeyi onayla
   useEffect(() => {
     const unsubAck = syncEngine.on('board_ack', () => {
       setIsPaired(true);
@@ -191,28 +262,7 @@ export default function OgretmenScannerPage() {
     return () => unsubAck();
   }, []);
 
-  // 2. Sınıfları ve Soru Listesini LocalStorage'dan Yükle
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const savedClasses = localStorage.getItem('scanquiz_classes');
-        const savedCurrent = localStorage.getItem('scanquiz_current_class');
-        if (savedClasses) {
-          const parsed = JSON.parse(savedClasses);
-          setClasses(parsed);
-          const active = savedCurrent && parsed[savedCurrent] ? savedCurrent : Object.keys(parsed)[0];
-          if (active) {
-            setCurrentClass(active);
-            setRoster(parsed[active] || {});
-          }
-        } else {
-          setRoster(classes['9-A']);
-        }
-      } catch (e) {}
-    }
-  }, []);
-
-  // 3. OpenCV.js Yükleme
+  // OpenCV.js Yükleme
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
@@ -243,7 +293,7 @@ export default function OgretmenScannerPage() {
         }
       };
       script.onerror = () => {
-        setOpenCvReady(true);
+        setOpenCvReady(true); // Pure JS motoruna geç
       };
       document.body.appendChild(script);
     } else if (window.cv && window.cv.Mat) {
@@ -252,27 +302,35 @@ export default function OgretmenScannerPage() {
     }
   }, []);
 
-  // 4. PIN ile Tahtaya Bağlanma (Garanti İletimli Burst)
+  // PIN ile Tahtaya Bağlanma (Garanti İletim Burst)
   const handlePair = (e) => {
     if (e) e.preventDefault();
     const cleanPin = pin.trim();
     if (!cleanPin || cleanPin.length < 4) {
-      alert('Lütfen akıllı tahtadaki geçerli PIN kodunu girin.');
+      alert('Lütfen akıllı tahtada görünen 6 haneli PIN kodunu girin.');
       return;
     }
 
     syncEngine.setRoom(cleanPin);
-    // Güvenilir çoklu burst ile tahtaya ilet (5 deneme, 400ms aralıkla)
     syncEngine.emitReliable('host_paired', {
       teacherId: user?.id,
+      className: currentClassKey,
+      teacherName: currentTeacherName,
       timestamp: Date.now()
     }, 5, 400);
+
+    // Sınıf listesini de tahtaya hemen gönder
+    syncEngine.emit('roster_updated', {
+      className: currentClassKey,
+      teacherName: currentTeacherName,
+      roster: currentRoster
+    });
 
     setIsPaired(true);
     soundEffects.playSubmit();
   };
 
-  // 5. Kamera Başlatma / Durdurma
+  // Kamera Başlat / Durdur
   const startCamera = async () => {
     setCameraError('');
     try {
@@ -285,7 +343,7 @@ export default function OgretmenScannerPage() {
         startVisionLoop();
       }
     } catch (err) {
-      setCameraError(err.message || 'Kameraya erişilemedi. Lütfen tarayıcı kamera izinlerini kontrol edin.');
+      setCameraError(err.message || 'Kameraya erişilemedi. Tarayıcı kamera izinlerini kontrol edin.');
     }
   };
 
@@ -300,14 +358,14 @@ export default function OgretmenScannerPage() {
     setCameraActive(false);
   };
 
-  // 6. ArUco Kartı Algılandığında
+  // ArUco Kartı Algılandığında Tetiklenen Callback
   const recordDetection = useCallback((studentId, choice, angle) => {
     const now = Date.now();
     const last = scannedDebounceRef.current.get(studentId) || 0;
-    if (now - last < 1000) return;
+    if (now - last < 1000) return; // 1 saniye debounce
     scannedDebounceRef.current.set(studentId, now);
 
-    // Tahtaya Realtime olarak fırlat
+    // Tahtaya Realtime olarak yayınla
     syncEngine.emit('student_scanned_raw', {
       studentId,
       choice,
@@ -323,14 +381,14 @@ export default function OgretmenScannerPage() {
 
     soundEffects.playSubmit();
 
-    const studentName = roster[studentId] || `Öğrenci #${studentId}`;
+    const studentName = currentRoster[studentId] || `Öğrenci #${studentId}`;
     setRecentDetections((prev) => [
       { studentId, studentName, choice, angle: Math.round(angle), time: new Date().toLocaleTimeString() },
-      ...prev.slice(0, 9)
+      ...prev.slice(0, 7)
     ]);
-  }, [roster]);
+  }, [currentRoster]);
 
-  // 7. OpenCV.js Bilgisayarla Görü Döngüsü
+  // Bilgisayarla Görü Döngüsü (ArUco DICT_4X4_50)
   const startVisionLoop = () => {
     let frameCount = 0;
     let lastTime = performance.now();
@@ -368,64 +426,34 @@ export default function OgretmenScannerPage() {
         lastTime = now;
       }
 
-      const cv = cvRef.current;
-      if (cv && cv.Mat) {
-        try {
-          const src = cv.imread(canvas);
-          const gray = new cv.Mat();
-          cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+      // ArUco Kart Algılama Motoru (OpenCV Kontur + Perspektif Warp / Pure JS)
+      try {
+        const detections = detectArucoMarkers(canvas, cvRef.current);
+        if (detections && detections.length > 0) {
+          detections.forEach((det) => {
+            recordDetection(det.studentId, det.choice, det.angle);
 
-          // ArUco DICT_4X4_50 Tespiti
-          if (cv.aruco) {
-            const dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_4X4_50);
-            const corners = new cv.MatVector();
-            const ids = new cv.Mat();
-            const parameters = new cv.aruco.DetectorParameters();
+            // Kameranın üzerinde yeşil kare ve şık etiketi çiz
+            if (overlayCtx && det.corners && det.corners.length === 4) {
+              overlayCtx.strokeStyle = '#10b981';
+              overlayCtx.lineWidth = 3;
+              overlayCtx.beginPath();
+              overlayCtx.moveTo(det.corners[0].x, det.corners[0].y);
+              overlayCtx.lineTo(det.corners[1].x, det.corners[1].y);
+              overlayCtx.lineTo(det.corners[2].x, det.corners[2].y);
+              overlayCtx.lineTo(det.corners[3].x, det.corners[3].y);
+              overlayCtx.closePath();
+              overlayCtx.stroke();
 
-            cv.aruco.detectMarkers(gray, dictionary, corners, ids, parameters);
-
-            if (ids.rows > 0) {
-              for (let i = 0; i < ids.rows; i++) {
-                const markerId = ids.data32S[i];
-                const studentId = markerId + 1; // 0 index -> Öğrenci 1
-
-                const cornerMat = corners.get(i);
-                const p0 = { x: cornerMat.data32F[0], y: cornerMat.data32F[1] };
-                const p1 = { x: cornerMat.data32F[2], y: cornerMat.data32F[3] };
-                const p2 = { x: cornerMat.data32F[4], y: cornerMat.data32F[5] };
-                const p3 = { x: cornerMat.data32F[6], y: cornerMat.data32F[7] };
-
-                const angle = calculateRotationAngle(p0, p1, p2, p3);
-                const choice = angleToChoice(angle);
-
-                recordDetection(studentId, choice, angle);
-
-                if (overlayCtx) {
-                  overlayCtx.strokeStyle = '#10b981';
-                  overlayCtx.lineWidth = 3;
-                  overlayCtx.beginPath();
-                  overlayCtx.moveTo(p0.x, p0.y);
-                  overlayCtx.lineTo(p1.x, p1.y);
-                  overlayCtx.lineTo(p2.x, p2.y);
-                  overlayCtx.lineTo(p3.x, p3.y);
-                  overlayCtx.closePath();
-                  overlayCtx.stroke();
-
-                  overlayCtx.fillStyle = '#10b981';
-                  overlayCtx.font = 'bold 16px monospace';
-                  overlayCtx.fillText(`#${studentId} [${choice}]`, p0.x, p0.y - 10);
-                }
-              }
+              // Etiket Kutusu
+              overlayCtx.fillStyle = '#10b981';
+              overlayCtx.font = 'bold 16px sans-serif';
+              overlayCtx.fillText(`#${det.studentId} [${det.choice}]`, det.corners[0].x, Math.max(20, det.corners[0].y - 8));
             }
-
-            corners.delete();
-            ids.delete();
-            parameters.delete();
-          }
-
-          src.delete();
-          gray.delete();
-        } catch (e) {}
+          });
+        }
+      } catch (err) {
+        // Algılama hatası olsa bile kamerayı kilitleme
       }
 
       animFrameRef.current = requestAnimationFrame(processFrame);
@@ -434,9 +462,9 @@ export default function OgretmenScannerPage() {
     animFrameRef.current = requestAnimationFrame(processFrame);
   };
 
-  // 8. Soru Kontrolleri (Soruyu Başlat / Bitir / Sonraki)
+  // Soru Kontrolleri
   const handleStartQuestion = (idx = currentIndex) => {
-    const q = questions[idx];
+    const q = currentQuestions[idx];
     if (!q) return;
 
     setActiveQuestion(q);
@@ -459,6 +487,19 @@ export default function OgretmenScannerPage() {
       if (stats[val.choice] !== undefined) stats[val.choice]++;
     });
 
+    // Bu sorunun sonuçlarını kümülatif hafızaya kaydet (test sonu raporu için)
+    setTestQuestionResults((prev) => ({
+      ...prev,
+      [activeQuestion.id]: {
+        questionId: activeQuestion.id,
+        text: activeQuestion.text,
+        correctAnswer: activeQuestion.correctAnswer,
+        options: activeQuestion.options,
+        results: rawResults,
+        stats
+      }
+    }));
+
     syncEngine.emit('end_question', {
       questionId: activeQuestion.id,
       correctAnswer: activeQuestion.correctAnswer,
@@ -470,29 +511,160 @@ export default function OgretmenScannerPage() {
   };
 
   const handleNextQuestion = () => {
-    if (currentIndex + 1 < questions.length) {
+    if (currentIndex + 1 < currentQuestions.length) {
       const nextIdx = currentIndex + 1;
       setCurrentIndex(nextIdx);
       handleStartQuestion(nextIdx);
     } else {
-      setQuestionState('IDLE');
-      setActiveQuestion(null);
-      syncEngine.emit('reset_question', {});
+      // Test bitti -> otomatik özet raporu hazırla
+      handleCompleteQuiz();
     }
   };
 
-  // 9. Telefondan Soru Dosyası Yükleme (.pdf, .xlsx, .csv, .txt)
+  // TESTİ BİTİR & ŞAMPİYONLAR PODYUMUNU TAHTAYA YANSIT
+  const handleCompleteQuiz = () => {
+    setQuestionState('IDLE');
+    setActiveQuestion(null);
+
+    // Kümülatif Sonuçları Analiz Et
+    const studentScores = {}; // { [studentId]: { correct: 0, wrong: 0, total: 0 } }
+    const questionAnalytics = [];
+
+    // Tüm öğrencileri listele
+    Object.keys(currentRoster).forEach((sId) => {
+      studentScores[sId] = { correct: 0, wrong: 0, total: 0 };
+    });
+
+    const recordedQIds = Object.keys(testQuestionResults);
+    recordedQIds.forEach((qId) => {
+      const qData = testQuestionResults[qId];
+      const correctAns = qData.correctAnswer;
+      let qCorrectCount = 0;
+      let qWrongCount = 0;
+      const wrongDistractors = { A: 0, B: 0, C: 0, D: 0 };
+
+      Object.entries(qData.results || {}).forEach(([sId, chosenOpt]) => {
+        if (!studentScores[sId]) studentScores[sId] = { correct: 0, wrong: 0, total: 0 };
+        studentScores[sId].total++;
+
+        if (chosenOpt === correctAns) {
+          studentScores[sId].correct++;
+          qCorrectCount++;
+        } else {
+          studentScores[sId].wrong++;
+          qWrongCount++;
+          if (wrongDistractors[chosenOpt] !== undefined) {
+            wrongDistractors[chosenOpt]++;
+          }
+        }
+      });
+
+      // En çok düşülen çeldirici
+      let mostCommonWrong = null;
+      let maxDistractorCount = 0;
+      ['A', 'B', 'C', 'D'].forEach((opt) => {
+        if (opt !== correctAns && wrongDistractors[opt] > maxDistractorCount) {
+          maxDistractorCount = wrongDistractors[opt];
+          mostCommonWrong = opt;
+        }
+      });
+
+      const totalQAnswers = qCorrectCount + qWrongCount;
+      const successPct = totalQAnswers > 0 ? Math.round((qCorrectCount / totalQAnswers) * 100) : 0;
+      const failurePct = 100 - successPct;
+
+      questionAnalytics.push({
+        questionId: qData.questionId,
+        text: qData.text,
+        correctAnswer: correctAns,
+        correctCount: qCorrectCount,
+        wrongCount: qWrongCount,
+        successPct,
+        failurePct,
+        mostCommonWrongChoice: mostCommonWrong
+      });
+    });
+
+    // 1. Şampiyonlar (En çok doğru yapanlar)
+    const sortedStudents = Object.entries(studentScores).map(([sId, data]) => ({
+      studentId: Number(sId),
+      studentName: currentRoster[sId] || `Öğrenci #${sId}`,
+      correctCount: data.correct,
+      wrongCount: data.wrong,
+      accuracyPct: data.total > 0 ? Math.round((data.correct / data.total) * 100) : 0
+    })).sort((a, b) => b.correctCount - a.correctCount || a.wrongCount - b.wrongCount);
+
+    const topStudents = sortedStudents.slice(0, 3);
+    const bottomStudents = [...sortedStudents].sort((a, b) => b.wrongCount - a.wrongCount).filter(s => s.wrongCount > 0).slice(0, 3);
+
+    // 2. En Kolay ve En Zor Sorular
+    const mostCorrectQuestions = [...questionAnalytics].sort((a, b) => b.successPct - a.successPct).slice(0, 3);
+    const mostWrongQuestions = [...questionAnalytics].sort((a, b) => b.failurePct - a.failurePct).filter(q => q.wrongCount > 0).slice(0, 3);
+
+    const summaryPayload = {
+      testTitle: activeTest.name,
+      totalQuestions: recordedQIds.length,
+      topStudents,
+      bottomStudents,
+      mostCorrectQuestions,
+      mostWrongQuestions,
+      timestamp: Date.now()
+    };
+
+    setQuizSummary(summaryPayload);
+    setActiveTab('summary');
+
+    // Tahtaya Podyum Raporunu fırlat
+    syncEngine.emitReliable('quiz_completed', summaryPayload, 4, 400);
+    soundEffects.playReveal();
+
+    // Kullanıcı geçmişine kaydet
+    if (user?.id) {
+      saveUserDataToCloud(user.id, {
+        history: [summaryPayload]
+      });
+    }
+  };
+
+  // Yeni Test Ekleme
+  const handleCreateTest = (e) => {
+    if (e) e.preventDefault();
+    const title = newTestTitle.trim();
+    if (!title) return;
+
+    const newTest = {
+      id: 'test_' + Date.now(),
+      name: title,
+      questions: []
+    };
+
+    const updatedTests = [...tests, newTest];
+    setTests(updatedTests);
+    setActiveTestId(newTest.id);
+    setNewTestTitle('');
+    setShowNewTestModal(false);
+
+    saveUserDataToCloud(user?.id, { tests: updatedTests, activeTestId: newTest.id });
+    alert(`✓ "${title}" testi oluşturuldu. Şimdi soru ekleyebilirsiniz!`);
+  };
+
+  // Dosyadan Soru Yükleme
   const handleFileUpload = async (file) => {
     if (!file) return;
-    setImportStatus('Dosya işleniyor...');
+    setImportStatus('Dosya okunuyor...');
 
     try {
       const parsed = await parseQuizFile(file);
       if (parsed && parsed.length > 0) {
-        setQuestions(parsed);
-        setCurrentIndex(0);
-        setImportStatus(`✓ ${parsed.length} adet soru başarıyla aktarıldı.`);
-        saveUserDataToCloud(user?.id, { questions: parsed });
+        const updatedTests = tests.map((t) => {
+          if (t.id === activeTestId) {
+            return { ...t, questions: [...t.questions, ...parsed] };
+          }
+          return t;
+        });
+        setTests(updatedTests);
+        setImportStatus(`✓ ${parsed.length} soru "${activeTest.name}" testine eklendi.`);
+        saveUserDataToCloud(user?.id, { tests: updatedTests });
         soundEffects.playReveal();
       } else {
         setImportStatus('Dosyadan soru okunamadı.');
@@ -502,11 +674,11 @@ export default function OgretmenScannerPage() {
     }
   };
 
-  // 10. Hocanın Yeni Soru Oluşturucusu
+  // Manuel Soru Oluşturma
   const handleCreateQuestion = (e) => {
     if (e) e.preventDefault();
     if (!newQuestionText.trim() || !newOptA.trim() || !newOptB.trim()) {
-      alert('Lütfen en az soru metnini ve A, B şıklarını girin.');
+      alert('Lütfen en az soru metnini ve A, B şıklarını doldurun.');
       return;
     }
 
@@ -522,9 +694,15 @@ export default function OgretmenScannerPage() {
       correctAnswer: newCorrectAnswer
     };
 
-    const updatedQ = [...questions, newQ];
-    setQuestions(updatedQ);
-    saveUserDataToCloud(user?.id, { questions: updatedQ });
+    const updatedTests = tests.map((t) => {
+      if (t.id === activeTestId) {
+        return { ...t, questions: [...t.questions, newQ] };
+      }
+      return t;
+    });
+
+    setTests(updatedTests);
+    saveUserDataToCloud(user?.id, { tests: updatedTests });
 
     setNewQuestionText('');
     setNewOptA('');
@@ -532,21 +710,43 @@ export default function OgretmenScannerPage() {
     setNewOptC('');
     setNewOptD('');
     setShowQuestionCreator(false);
-    alert('✓ Soru havuzuna ve bulut hesabınıza kaydedildi!');
+    alert('✓ Soru mevcut teste eklendi ve Google hesabınıza kaydedildi!');
   };
 
-  // 11. Sınıf Değiştirme & Yeni Sınıf Ekleme
-  const handleSelectClass = (cName) => {
-    setCurrentClass(cName);
-    const targetRoster = classes[cName] || {};
-    setRoster(targetRoster);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('scanquiz_current_class', cName);
-      localStorage.setItem('scanquiz_roster', JSON.stringify(targetRoster));
-    }
-    syncEngine.emit('roster_updated', targetRoster);
+  // Sınıf Değiştirme
+  const handleSelectClass = (cKey) => {
+    setCurrentClassKey(cKey);
+    const target = classes[cKey] || { name: cKey, teacherName: '', students: {} };
+    setCurrentTeacherName(target.teacherName || '');
+
+    syncEngine.emit('roster_updated', {
+      className: target.name || cKey,
+      teacherName: target.teacherName || '',
+      roster: target.students || {}
+    });
   };
 
+  // Hoca Adını Güncelleme
+  const handleUpdateTeacherName = (name) => {
+    setCurrentTeacherName(name);
+    const updated = {
+      ...classes,
+      [currentClassKey]: {
+        ...classes[currentClassKey],
+        teacherName: name
+      }
+    };
+    setClasses(updated);
+    saveUserDataToCloud(user?.id, { classes: updated });
+
+    syncEngine.emit('roster_updated', {
+      className: currentClassKey,
+      teacherName: name,
+      roster: currentRoster
+    });
+  };
+
+  // Yeni Sınıf Ekleme (örn: 8/C)
   const handleAddClass = () => {
     const trimmed = newClassName.trim().toUpperCase();
     if (!trimmed) return;
@@ -554,66 +754,188 @@ export default function OgretmenScannerPage() {
       alert('Bu sınıf zaten mevcut!');
       return;
     }
-    const updated = { ...classes, [trimmed]: {} };
+
+    const updated = {
+      ...classes,
+      [trimmed]: {
+        name: trimmed,
+        teacherName: newTeacherInput.trim() || currentTeacherName,
+        students: {}
+      }
+    };
+
     setClasses(updated);
-    setCurrentClass(trimmed);
-    setRoster({});
+    setCurrentClassKey(trimmed);
+    setCurrentTeacherName(newTeacherInput.trim() || currentTeacherName);
     setNewClassName('');
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('scanquiz_classes', JSON.stringify(updated));
-      localStorage.setItem('scanquiz_current_class', trimmed);
-      localStorage.setItem('scanquiz_roster', JSON.stringify({}));
-    }
+    setNewTeacherInput('');
+
     saveUserDataToCloud(user?.id, { classes: updated });
-    syncEngine.emit('roster_updated', {});
+    syncEngine.emit('roster_updated', {
+      className: trimmed,
+      teacherName: newTeacherInput.trim() || currentTeacherName,
+      roster: {}
+    });
     alert(`✓ ${trimmed} sınıfı eklendi!`);
   };
 
-  const saveRoster = (newRoster) => {
-    setRoster(newRoster);
-    const updated = { ...classes, [currentClass]: newRoster };
-    setClasses(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('scanquiz_classes', JSON.stringify(updated));
-      localStorage.setItem('scanquiz_roster', JSON.stringify(newRoster));
-    }
-    saveUserDataToCloud(user?.id, { classes: updated });
-    syncEngine.emit('roster_updated', newRoster);
-  };
-
+  // Öğrenci Ekleme
   const addStudent = () => {
     const id = parseInt(newStudentId, 10);
     const name = newStudentName.trim();
     if (!id || !name) return;
 
-    const updated = { ...roster, [id]: name };
-    saveRoster(updated);
+    const updatedStudents = { ...currentRoster, [id]: name };
+    const updatedClasses = {
+      ...classes,
+      [currentClassKey]: {
+        ...classes[currentClassKey],
+        students: updatedStudents
+      }
+    };
+
+    setClasses(updatedClasses);
+    saveUserDataToCloud(user?.id, { classes: updatedClasses });
+    syncEngine.emit('roster_updated', {
+      className: currentClassKey,
+      teacherName: currentTeacherName,
+      roster: updatedStudents
+    });
+
     setNewStudentId('');
     setNewStudentName('');
   };
 
-  const removeStudent = (id) => {
-    const updated = { ...roster };
-    delete updated[id];
-    saveRoster(updated);
-  };
-
+  // Toplu Öğrenci Yapıştırma
   const handleBulkImport = () => {
     const lines = bulkNames.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length === 0) return;
 
-    const updated = { ...roster };
+    const updatedStudents = { ...currentRoster };
     lines.forEach((name, idx) => {
-      updated[idx + 1] = name;
+      updatedStudents[idx + 1] = name;
     });
-    saveRoster(updated);
+
+    const updatedClasses = {
+      ...classes,
+      [currentClassKey]: {
+        ...classes[currentClassKey],
+        students: updatedStudents
+      }
+    };
+
+    setClasses(updatedClasses);
+    saveUserDataToCloud(user?.id, { classes: updatedClasses });
+    syncEngine.emit('roster_updated', {
+      className: currentClassKey,
+      teacherName: currentTeacherName,
+      roster: updatedStudents
+    });
+
     setBulkNames('');
-    alert(`${lines.length} öğrenci ${currentClass} sınıfına aktarıldı.`);
+    alert(`✓ ${lines.length} öğrenci ${currentClassKey} sınıfına aktarıldı.`);
   };
+
+  // Katılım Hesaplama
+  const allStudentIds = Object.keys(currentRoster).map(Number);
+  const pendingStudents = allStudentIds.filter(id => !submissions.has(id));
+  const answeredCount = submissions.size;
+  const pendingCount = pendingStudents.length;
+
+  // GOOGLE LOGIN GATE (Oturum açılmadıysa zorunlu giriş ekranı)
+  if (!user && !guestBypass && !authLoading) {
+    return (
+      <div style={{
+        maxWidth: '480px',
+        margin: '40px auto',
+        padding: '24px 20px',
+        minHeight: '80vh',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        textAlign: 'center'
+      }}>
+        <div className="panel" style={{
+          padding: '40px 28px',
+          width: '100%',
+          border: '2px solid rgba(59, 130, 246, 0.4)',
+          boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6)'
+        }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '16px',
+            background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.8rem',
+            margin: '0 auto 20px',
+            boxShadow: '0 0 24px rgba(59, 130, 246, 0.5)'
+          }}>
+            🎓
+          </div>
+
+          <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', marginBottom: '8px' }}>
+            Öğretmen Girişi
+          </h1>
+
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '28px', lineHeight: 1.5 }}>
+            Sınıflarınız (8/A, 8/B), hoca isminiz, soru havuzlarınız ve geçmiş test raporlarınız <strong>Google hesabınıza</strong> otomatik olarak kaydedilir ve her cihazda hazır gelir.
+          </p>
+
+          <button
+            onClick={handleGoogleLogin}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              background: '#fff',
+              color: '#1f2937',
+              border: 'none',
+              borderRadius: '12px',
+              padding: '14px 20px',
+              fontSize: '1.05rem',
+              fontWeight: 800,
+              cursor: 'pointer',
+              boxShadow: '0 4px 16px rgba(255, 255, 255, 0.2)',
+              marginBottom: '16px',
+              transition: 'transform 0.15s ease'
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3h3.88c2.27-2.09 3.665-5.17 3.665-9.09z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.1C3.27 21.43 7.37 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.28 14.32c-.25-.72-.38-1.49-.38-2.32s.13-1.6.38-2.32V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.1z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.27 2.57 1.25 6.58l4.03 3.1c.95-2.83 3.6-4.93 6.72-4.93z"/>
+            </svg>
+            Google ile Giriş Yap
+          </button>
+
+          <button
+            onClick={() => setGuestBypass(true)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-dim)',
+              fontSize: '0.8rem',
+              cursor: 'pointer',
+              textDecoration: 'underline'
+            }}
+          >
+            Misafir / Geliştirici Modu ile Devam Et
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: '640px', margin: '0 auto', padding: '12px', minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      {/* 1. ÜST ÇUBUK: Logo, Google Giriş / Profil & Oda Durumu */}
+      {/* 1. ÜST ÇUBUK: Profil, Sınıf & Tahta PIN Eşleşme */}
       <header
         style={{
           display: 'flex',
@@ -637,58 +959,33 @@ export default function OgretmenScannerPage() {
             fontSize: '0.75rem',
             fontWeight: 700
           }}>
-            {isPaired ? `Oda: ${pin}` : 'Tahtaya Bağlanın'}
+            {isPaired ? `Oda: ${pin}` : 'Tahta Bekleniyor'}
           </span>
         </div>
 
-        {/* Firebase Google Giriş / Profil Alanı */}
+        {/* Kullanıcı Profili & Çıkış */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {user && user.email ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {user.photoURL && (
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName}
-                  style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #3b82f6' }}
-                />
-              )}
-              <span style={{ fontSize: '0.78rem', color: '#e5e7eb', maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {user.displayName}
-              </span>
-              <button onClick={handleSignOut} className="btn btn-sm" style={{ padding: '2px 6px', fontSize: '0.7rem' }}>
-                Çıkış
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleGoogleLogin}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                background: '#fff',
-                color: '#1f2937',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '6px 12px',
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3h3.88c2.27-2.09 3.665-5.17 3.665-9.09z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.1C3.27 21.43 7.37 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.32c-.25-.72-.38-1.49-.38-2.32s.13-1.6.38-2.32V6.58H1.25C.45 8.18 0 9.98 0 12s.45 3.82 1.25 5.42l4.03-3.1z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.37 0 3.27 2.57 1.25 6.58l4.03 3.1c.95-2.83 3.6-4.93 6.72-4.93z"/>
-              </svg>
-              Google Giriş
-            </button>
+          {user?.photoURL && (
+            <img
+              src={user.photoURL}
+              alt={user.displayName}
+              style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #3b82f6' }}
+            />
           )}
+          <span style={{ fontSize: '0.78rem', color: '#e5e7eb', maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user?.displayName || 'Misafir Hoca'}
+          </span>
+          <button
+            onClick={handleSignOut}
+            className="btn btn-sm"
+            style={{ padding: '2px 8px', fontSize: '0.7rem', background: 'rgba(255,255,255,0.06)' }}
+          >
+            Çıkış
+          </button>
         </div>
       </header>
 
-      {/* 2. PIN BAĞLANTISI (Bağlı değilse) */}
+      {/* 2. TAHTA PIN EŞLEŞTİRME KUTUSU (Bağlı değilse) */}
       {!isPaired && (
         <section
           style={{
@@ -732,307 +1029,350 @@ export default function OgretmenScannerPage() {
         </section>
       )}
 
-      {/* 3. MOBİL SEKME MENÜSÜ */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px' }}>
-        <button
-          onClick={() => setActiveTab('camera')}
-          style={{
-            padding: '10px 4px',
-            borderRadius: '10px',
-            border: 'none',
-            fontWeight: 800,
-            fontSize: '0.82rem',
-            cursor: 'pointer',
-            background: activeTab === 'camera' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#12151f',
-            color: activeTab === 'camera' ? '#fff' : '#9ca3af'
-          }}
-        >
-          📷 Kamera Tara
-        </button>
-        <button
-          onClick={() => setActiveTab('questions')}
-          style={{
-            padding: '10px 4px',
-            borderRadius: '10px',
-            border: 'none',
-            fontWeight: 800,
-            fontSize: '0.82rem',
-            cursor: 'pointer',
-            background: activeTab === 'questions' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#12151f',
-            color: activeTab === 'questions' ? '#fff' : '#9ca3af'
-          }}
-        >
-          📝 Sorular ({questions.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('classes')}
-          style={{
-            padding: '10px 4px',
-            borderRadius: '10px',
-            border: 'none',
-            fontWeight: 800,
-            fontSize: '0.82rem',
-            cursor: 'pointer',
-            background: activeTab === 'classes' ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#12151f',
-            color: activeTab === 'classes' ? '#fff' : '#9ca3af'
-          }}
-        >
-          👥 Sınıflar ({currentClass})
-        </button>
+      {/* 3. MOBİL DÖRT SEKMELİ GEZİNME MENÜSÜ */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+        {[
+          { key: 'camera', label: '📷 Kamera' },
+          { key: 'questions', label: '📝 Testler' },
+          { key: 'classes', label: '🏫 Sınıflar' },
+          { key: 'summary', label: '🏆 Rapor' }
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            style={{
+              padding: '10px 4px',
+              borderRadius: '10px',
+              border: 'none',
+              fontWeight: 800,
+              fontSize: '0.78rem',
+              cursor: 'pointer',
+              background: activeTab === tab.key ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : '#12151f',
+              color: activeTab === tab.key ? '#fff' : '#9ca3af',
+              boxShadow: activeTab === tab.key ? '0 2px 10px rgba(59, 130, 246, 0.3)' : 'none'
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* ======================================================== */}
-      {/* SEKME 1: KAMERA TARAYICI & OPTİK ARUCO MOTORU */}
-      {/* ======================================================== */}
+      {/* SEKME 1: KAMERA TARAYICI & CANLI SORU KONTROLÜ */}
       {activeTab === 'camera' && (
-        <section
-          style={{
-            background: 'rgba(18, 21, 31, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Kamera Canlı Önizleme */}
+          <div style={{
+            position: 'relative',
+            width: '100%',
+            height: '280px',
+            background: '#000',
             borderRadius: '16px',
-            padding: '14px'
-          }}
-        >
-          {/* Kamera Başlık & Durum */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <span style={{ fontSize: '0.88rem', fontWeight: 800, color: '#fff' }}>
-                Optik Kart Tarayıcı
-              </span>
-              <span style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', background: openCvReady ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)', color: openCvReady ? '#34d399' : '#fbbf24', fontWeight: 700 }}>
-                {openCvReady ? 'ArUco DICT_4X4_50' : 'Yükleniyor...'}
-              </span>
-            </div>
+            overflow: 'hidden',
+            border: '2px solid rgba(59, 130, 246, 0.3)'
+          }}>
+            <video
+              ref={videoRef}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              playsInline
+              muted
+            />
+            <canvas
+              ref={overlayCanvasRef}
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none' }}
+            />
+
+            {!cameraActive && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: 'rgba(10, 13, 20, 0.85)',
+                color: '#fff',
+                padding: '20px',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '2.4rem', marginBottom: '10px' }}>📸</div>
+                <div style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '12px' }}>
+                  Kamera Başlatılmadı
+                </div>
+                <button onClick={startCamera} className="btn btn-primary" style={{ padding: '10px 20px', fontSize: '0.9rem' }}>
+                  Kamerayı Aç
+                </button>
+              </div>
+            )}
+
             {cameraActive && (
-              <span style={{ background: '#10b981', color: '#fff', fontSize: '0.72rem', fontWeight: 800, padding: '2px 6px', borderRadius: '4px' }}>
-                {fps} FPS
-              </span>
+              <div style={{
+                position: 'absolute',
+                bottom: '10px',
+                left: '10px',
+                right: '10px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                pointerEvents: 'none'
+              }}>
+                <span className="badge badge-success" style={{ fontSize: '0.72rem', pointerEvents: 'auto' }}>
+                  FPS: {fps} | ArUco Aktif
+                </span>
+                <button
+                  onClick={stopCamera}
+                  className="btn btn-sm"
+                  style={{ pointerEvents: 'auto', background: 'rgba(239, 68, 68, 0.85)', color: '#fff', fontSize: '0.72rem', padding: '4px 10px' }}
+                >
+                  Kapat
+                </button>
+              </div>
             )}
           </div>
 
           {cameraError && (
-            <div style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#f87171', border: '1px solid #ef4444', padding: '8px 12px', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '10px' }}>
+            <div style={{ padding: '10px', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid #ef4444', borderRadius: '10px', color: '#fca5a5', fontSize: '0.8rem' }}>
               {cameraError}
             </div>
           )}
 
-          {/* Video Container */}
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              height: '280px',
-              background: '#000',
-              borderRadius: '12px',
-              overflow: 'hidden',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
-          >
-            <video
-              ref={videoRef}
-              playsInline
-              muted
-              autoPlay
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: cameraActive ? 'block' : 'none' }}
-            />
-            <canvas
-              ref={overlayCanvasRef}
-              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none', display: cameraActive ? 'block' : 'none' }}
-            />
-            <canvas ref={canvasRef} style={{ display: 'none' }} />
+          {/* Soru Kontrol Paneli */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <span className="badge badge-info" style={{ fontSize: '0.75rem' }}>
+                {activeTest.name} ({currentIndex + 1}/{currentQuestions.length})
+              </span>
+              <span className={`badge ${questionState === 'RUNNING' ? 'badge-warning' : 'badge-success'}`}>
+                {questionState === 'RUNNING' ? '● Canlı Taranıyor' : questionState === 'ENDED' ? '✓ Soru Bitti' : 'Beklemede'}
+              </span>
+            </div>
 
-            {!cameraActive && (
-              <div style={{ textAlign: 'center', padding: '20px' }}>
-                <div style={{ fontSize: '2.5rem', marginBottom: '8px' }}>📷</div>
-                <p style={{ color: '#9ca3af', fontSize: '0.85rem', marginBottom: '14px' }}>
-                  Öğrenci kartlarını taramak için kamerayı başlatın.
-                </p>
-                <button
-                  onClick={startCamera}
-                  style={{
-                    background: 'linear-gradient(135deg, #10b981, #059669)',
-                    color: '#fff',
-                    border: 'none',
-                    padding: '12px 24px',
-                    borderRadius: '12px',
-                    fontSize: '0.95rem',
-                    fontWeight: 800,
-                    cursor: 'pointer',
-                    boxShadow: '0 4px 14px rgba(16, 185, 129, 0.4)'
-                  }}
-                >
-                  Kamerayı Başlat
-                </button>
-              </div>
+            {currentQuestions[currentIndex] && (
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: '#fff', marginBottom: '14px', lineHeight: 1.3 }}>
+                {currentQuestions[currentIndex].text}
+              </h3>
             )}
-          </div>
 
-          {cameraActive && (
-            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-              <button
-                onClick={() => {
-                  const nextMode = facingMode === 'environment' ? 'user' : 'environment';
-                  setFacingMode(nextMode);
-                  stopCamera();
-                  setTimeout(startCamera, 200);
-                }}
-                className="btn btn-sm"
-                style={{ flex: 1 }}
-              >
-                🔄 Kamera Çevir
-              </button>
-              <button onClick={stopCamera} className="btn btn-sm btn-danger" style={{ flex: 1 }}>
-                Kamerayı Kapat
-              </button>
-            </div>
-          )}
-
-          {/* Son Algılanan Kartlar */}
-          <div style={{ marginTop: '14px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '0.82rem', fontWeight: 800, color: '#e5e7eb' }}>
-                Canlı Algılanan Yanıtlar ({recentDetections.length})
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto' }}>
-              {recentDetections.map((d, i) => (
-                <div key={i} style={{ background: '#0a0d14', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem' }}>
-                  <strong style={{ color: '#fff' }}>#{d.studentId}</strong>
-                  <span style={{ color: '#9ca3af' }}>{d.studentName}</span>
-                  <span style={{ background: 'rgba(59, 130, 246, 0.25)', color: '#60a5fa', padding: '1px 6px', borderRadius: '4px', fontWeight: 900 }}>
-                    {d.choice}
-                  </span>
-                </div>
-              ))}
-              {recentDetections.length === 0 && (
-                <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>
-                  Henüz okunan kart yok.
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* ======================================================== */}
-      {/* SEKME 2: SORULAR, QUIZ KONTROLÜ & SORU OLUŞTURUCU */}
-      {/* ======================================================== */}
-      {activeTab === 'questions' && (
-        <section
-          style={{
-            background: 'rgba(18, 21, 31, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
-            padding: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}
-        >
-          {/* Canlı Soru Kontrol Butonları */}
-          <div style={{ background: '#0a0d14', padding: '12px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.25)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span className="badge badge-info">Soru {currentIndex + 1} / {questions.length}</span>
-              <span className={`badge ${questionState === 'RUNNING' ? 'badge-warning' : questionState === 'ENDED' ? 'badge-success' : 'badge-info'}`}>
-                {questionState === 'RUNNING' ? 'Yayında' : questionState === 'ENDED' ? 'Cevaplar Açıklandı' : 'Hazır'}
-              </span>
-            </div>
-
-            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: '#fff', marginBottom: '10px' }}>
-              {questions[currentIndex]?.text}
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '12px' }}>
-              {['A', 'B', 'C', 'D'].map((opt) => {
-                const isCorrect = questions[currentIndex]?.correctAnswer === opt;
-                return (
-                  <div key={opt} style={{ padding: '6px 8px', borderRadius: '6px', background: isCorrect ? 'rgba(16, 185, 129, 0.15)' : '#12151f', border: isCorrect ? '1px solid var(--success)' : '1px solid transparent', fontSize: '0.8rem' }}>
-                    <strong style={{ color: isCorrect ? 'var(--success)' : '#9ca3af' }}>{opt}: </strong>
-                    <span style={{ color: '#e5e7eb' }}>{questions[currentIndex]?.options?.[opt]}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Soru Başlat / Bitir / Sonraki */}
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               {questionState === 'IDLE' && (
-                <button onClick={() => handleStartQuestion()} className="btn btn-primary" style={{ flex: 1, padding: '10px' }}>
+                <button
+                  onClick={() => handleStartQuestion(currentIndex)}
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '10px' }}
+                >
                   ▶ Soruyu Başlat
                 </button>
               )}
+
               {questionState === 'RUNNING' && (
-                <button onClick={handleEndQuestion} className="btn btn-warning" style={{ flex: 1, padding: '10px' }}>
-                  ■ Cevapları Göster
+                <button
+                  onClick={handleEndQuestion}
+                  className="btn"
+                  style={{ flex: 1, padding: '10px', background: '#f59e0b', color: '#000', fontWeight: 800 }}
+                >
+                  ⏹ Cevapları Açıkla
                 </button>
               )}
+
               {questionState === 'ENDED' && (
-                <button onClick={handleNextQuestion} className="btn btn-success" style={{ flex: 1, padding: '10px' }}>
-                  {currentIndex + 1 < questions.length ? 'Sonraki Soru →' : 'Tamamla'}
+                <button
+                  onClick={handleNextQuestion}
+                  className="btn btn-primary"
+                  style={{ flex: 1, padding: '10px' }}
+                >
+                  {currentIndex + 1 < currentQuestions.length ? '⏭ Sonraki Soru' : '🏆 Testi Bitir & Raporla'}
                 </button>
               )}
+
+              {/* Her an testi bitirip podyumu açabilme butonu */}
+              <button
+                onClick={handleCompleteQuiz}
+                className="btn btn-sm"
+                style={{ background: 'rgba(255,255,255,0.08)', fontSize: '0.75rem', padding: '8px' }}
+                title="Tüm testi tamamlayıp şampiyonları tahtada göster"
+              >
+                🏆 Testi Bitir
+              </button>
             </div>
           </div>
 
-          {/* Telefondan Dosya Yükle */}
-          <div style={{ background: '#0e1017', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#fff', marginBottom: '6px' }}>
-              📁 Telefondan Soru Dosyası Yükle
+          {/* CEVAP VERENLER & BEKLENENLER LİSTESİ */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#fff' }}>
+                Sınıf Katılımı ({currentClassKey} - {currentTeacherName})
+              </div>
+              <div style={{ display: 'flex', gap: '10px', fontSize: '0.78rem' }}>
+                <span style={{ color: '#34d399', fontWeight: 700 }}>✓ {answeredCount} Geldi</span>
+                <span style={{ color: '#f59e0b', fontWeight: 700 }}>⏳ {pendingCount} Bekleniyor</span>
+              </div>
             </div>
+
+            {/* Henüz Vermeyenler Bölümü (Öğretmenin kime kamera çevireceğini bilmesi için) */}
+            {pendingCount > 0 && (
+              <div style={{ marginBottom: '14px' }}>
+                <div style={{ fontSize: '0.75rem', color: '#f87171', fontWeight: 700, marginBottom: '6px' }}>
+                  ⚠️ Henüz Kart Göstermeyenler:
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {pendingStudents.map((sId) => (
+                    <span
+                      key={sId}
+                      style={{
+                        padding: '3px 8px',
+                        background: 'rgba(239, 68, 68, 0.12)',
+                        border: '1px solid rgba(239, 68, 68, 0.3)',
+                        borderRadius: '6px',
+                        fontSize: '0.72rem',
+                        color: '#fca5a5'
+                      }}
+                    >
+                      #{sId} {currentRoster[sId] || ''}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Son Tarananlar */}
+            <div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '6px' }}>
+                Son Başarılı Taramalar:
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' }}>
+                {recentDetections.map((det, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '6px 10px',
+                      background: 'rgba(16, 185, 129, 0.08)',
+                      border: '1px solid rgba(16, 185, 129, 0.25)',
+                      borderRadius: '8px',
+                      fontSize: '0.78rem'
+                    }}
+                  >
+                    <span style={{ color: '#fff', fontWeight: 700 }}>
+                      #{det.studentId} {det.studentName}
+                    </span>
+                    <span style={{ color: '#34d399', fontWeight: 900, fontFamily: 'monospace' }}>
+                      Şık: {det.choice} ({det.time})
+                    </span>
+                  </div>
+                ))}
+
+                {recentDetections.length === 0 && (
+                  <div style={{ textAlign: 'center', padding: '12px', color: 'var(--text-dim)', fontSize: '0.75rem' }}>
+                    Kamera açılıp kart gösterildiğinde buraya anında yansır.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SEKME 2: TESTLER & SORU YÖNETİMİ (Sonsuz Test & Soru Havuzu) */}
+      {activeTab === 'questions' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Test Seçici ve Yeni Test Oluştur Butonu */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+              <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff' }}>
+                Test Setleri ({tests.length})
+              </div>
+              <button
+                onClick={() => setShowNewTestModal(true)}
+                className="btn btn-sm btn-primary"
+                style={{ fontSize: '0.75rem', padding: '4px 10px' }}
+              >
+                + Yeni Test Ekle
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '6px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {tests.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => {
+                    setActiveTestId(t.id);
+                    setCurrentIndex(0);
+                    setQuestionState('IDLE');
+                    setActiveQuestion(null);
+                  }}
+                  style={{
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    fontWeight: 700,
+                    fontSize: '0.78rem',
+                    whiteSpace: 'nowrap',
+                    cursor: 'pointer',
+                    background: activeTestId === t.id ? 'var(--primary)' : 'rgba(255,255,255,0.06)',
+                    color: activeTestId === t.id ? '#fff' : '#9ca3af'
+                  }}
+                >
+                  {t.name} ({t.questions?.length || 0})
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dosya Yükleme & Manuel Soru Ekleme Butonları */}
+          <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="file"
               ref={fileInputRef}
-              accept=".pdf,.csv,.xlsx,.xls,.txt"
+              accept=".pdf,.xlsx,.xls,.csv,.txt"
               style={{ display: 'none' }}
-              onChange={(e) => {
-                if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
-              }}
+              onChange={(e) => handleFileUpload(e.target.files?.[0])}
             />
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={() => fileInputRef.current?.click()} className="btn btn-sm btn-primary" style={{ flex: 1 }}>
-                Dosya Seç (.pdf / .xlsx / .csv)
-              </button>
-              <button
-                onClick={() => setShowQuestionCreator(!showQuestionCreator)}
-                className="btn btn-sm btn-success"
-              >
-                + Manuel Soru Yaz
-              </button>
-            </div>
-            {importStatus && (
-              <div style={{ marginTop: '8px', fontSize: '0.78rem', color: importStatus.startsWith('✓') ? '#34d399' : '#f87171' }}>
-                {importStatus}
-              </div>
-            )}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="btn"
+              style={{ flex: 1, padding: '10px', fontSize: '0.8rem', background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)', color: '#60a5fa' }}
+            >
+              📂 PDF / Excel / Word Yükle
+            </button>
+            <button
+              onClick={() => setShowQuestionCreator(!showQuestionCreator)}
+              className="btn btn-primary"
+              style={{ flex: 1, padding: '10px', fontSize: '0.8rem' }}
+            >
+              ✍️ Yeni Soru Yaz
+            </button>
           </div>
 
-          {/* Hocanın Manuel Soru Oluşturucusu Formu */}
+          {importStatus && (
+            <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)', color: '#34d399', fontSize: '0.78rem' }}>
+              {importStatus}
+            </div>
+          )}
+
+          {/* Manuel Soru Yazıcı Formu */}
           {showQuestionCreator && (
-            <form onSubmit={handleCreateQuestion} style={{ background: '#0a0d14', padding: '14px', borderRadius: '12px', border: '1px solid rgba(59, 130, 246, 0.4)' }}>
-              <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
-                ✏️ Yeni Soru Oluştur
+            <form onSubmit={handleCreateQuestion} className="panel" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ fontWeight: 800, color: '#fff', fontSize: '0.9rem' }}>
+                Yeni Soru Oluştur
               </div>
+
               <textarea
-                rows={2}
                 placeholder="Soru metnini yazın..."
                 value={newQuestionText}
                 onChange={(e) => setNewQuestionText(e.target.value)}
-                className="input"
-                style={{ width: '100%', marginBottom: '8px', fontSize: '0.85rem' }}
+                rows={3}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.85rem' }}
                 required
               />
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '8px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <input
                   type="text"
                   placeholder="A Şıkkı"
                   value={newOptA}
                   onChange={(e) => setNewOptA(e.target.value)}
-                  className="input"
-                  style={{ fontSize: '0.82rem' }}
+                  style={{ padding: '8px', borderRadius: '6px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
                   required
                 />
                 <input
@@ -1040,8 +1380,7 @@ export default function OgretmenScannerPage() {
                   placeholder="B Şıkkı"
                   value={newOptB}
                   onChange={(e) => setNewOptB(e.target.value)}
-                  className="input"
-                  style={{ fontSize: '0.82rem' }}
+                  style={{ padding: '8px', borderRadius: '6px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
                   required
                 />
                 <input
@@ -1049,188 +1388,370 @@ export default function OgretmenScannerPage() {
                   placeholder="C Şıkkı"
                   value={newOptC}
                   onChange={(e) => setNewOptC(e.target.value)}
-                  className="input"
-                  style={{ fontSize: '0.82rem' }}
+                  style={{ padding: '8px', borderRadius: '6px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
                 />
                 <input
                   type="text"
                   placeholder="D Şıkkı"
                   value={newOptD}
                   onChange={(e) => setNewOptD(e.target.value)}
-                  className="input"
-                  style={{ fontSize: '0.82rem' }}
+                  style={{ padding: '8px', borderRadius: '6px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
                 />
               </div>
 
-              {/* Doğru Cevap Seçimi */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                <span style={{ fontSize: '0.8rem', color: '#9ca3af' }}>Doğru Cevap:</span>
-                {['A', 'B', 'C', 'D'].map((ch) => (
-                  <button
-                    key={ch}
-                    type="button"
-                    onClick={() => setNewCorrectAnswer(ch)}
-                    style={{
-                      background: newCorrectAnswer === ch ? '#10b981' : '#1f2433',
-                      color: '#fff',
-                      border: 'none',
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontWeight: 800,
-                      cursor: 'pointer',
-                      fontSize: '0.8rem'
-                    }}
-                  >
-                    {ch}
-                  </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Doğru Cevap:</span>
+                {['A', 'B', 'C', 'D'].map((opt) => (
+                  <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fff', cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="correctOpt"
+                      value={opt}
+                      checked={newCorrectAnswer === opt}
+                      onChange={() => setNewCorrectAnswer(opt)}
+                    />
+                    {opt}
+                  </label>
                 ))}
               </div>
 
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button type="submit" className="btn btn-sm btn-primary" style={{ flex: 1 }}>
-                  ✓ Soru Havuzuna Ekle
-                </button>
-                <button type="button" onClick={() => setShowQuestionCreator(false)} className="btn btn-sm">
-                  İptal
-                </button>
-              </div>
+              <button type="submit" className="btn btn-primary" style={{ padding: '8px', marginTop: '4px' }}>
+                Kaydet & Teste Ekle
+              </button>
             </form>
           )}
 
           {/* Soru Listesi */}
-          <div style={{ maxHeight: '200px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {questions.map((q, idx) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {currentQuestions.map((q, idx) => (
               <div
                 key={q.id || idx}
-                onClick={() => setCurrentIndex(idx)}
                 style={{
-                  padding: '8px 10px',
-                  borderRadius: '8px',
-                  background: idx === currentIndex ? 'rgba(59, 130, 246, 0.15)' : '#0e1017',
-                  border: idx === currentIndex ? '1px solid #3b82f6' : '1px solid rgba(255,255,255,0.06)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
+                  padding: '12px',
+                  background: 'var(--bg-surface-elevated)',
+                  border: idx === currentIndex ? '2px solid var(--primary)' : '1px solid var(--border-subtle)',
+                  borderRadius: '12px'
                 }}
               >
-                <span style={{ fontSize: '0.82rem', color: '#e5e7eb', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>
-                  <strong>#{idx + 1}</strong> {q.text}
-                </span>
-                <span className="badge badge-info" style={{ fontSize: '0.7rem' }}>
-                  {q.correctAnswer}
-                </span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <span style={{ fontWeight: 800, fontSize: '0.82rem', color: '#60a5fa' }}>
+                    #{idx + 1} Soru
+                  </span>
+                  <span className="badge badge-success" style={{ fontSize: '0.7rem' }}>
+                    Doğru: {q.correctAnswer}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.88rem', color: '#fff', fontWeight: 600, marginBottom: '8px' }}>
+                  {q.text}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  <div>A: {q.options?.A}</div>
+                  <div>B: {q.options?.B}</div>
+                  <div>C: {q.options?.C}</div>
+                  <div>D: {q.options?.D}</div>
+                </div>
               </div>
             ))}
           </div>
-        </section>
+        </div>
       )}
 
-      {/* ======================================================== */}
-      {/* SEKME 3: SINIF YÖNETİMİ & ÖĞRENCİ LİSTESİ */}
-      {/* ======================================================== */}
+      {/* SEKME 3: SINIFLAR (8/A, 8/B) VE HOCA İSİMLERİ */}
       {activeTab === 'classes' && (
-        <section
-          style={{
-            background: 'rgba(18, 21, 31, 0.85)',
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: '16px',
-            padding: '14px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}
-        >
-          {/* Sınıf Seçimi ve Yeni Sınıf Ekle */}
-          <div style={{ background: '#0a0d14', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff' }}>Aktif Sınıf:</span>
-              <select
-                value={currentClass}
-                onChange={(e) => handleSelectClass(e.target.value)}
-                className="input"
-                style={{ padding: '6px 10px', fontSize: '0.85rem', fontWeight: 700 }}
-              >
-                {Object.keys(classes).map((cName) => (
-                  <option key={cName} value={cName}>
-                    {cName} ({Object.keys(classes[cName] || {}).length} Öğrenci)
-                  </option>
-                ))}
-              </select>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {/* Sınıf Seçici */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ fontSize: '0.95rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>
+              Sınıf Seçimi
             </div>
+            <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+              {Object.keys(classes).map((cKey) => (
+                <button
+                  key={cKey}
+                  onClick={() => handleSelectClass(cKey)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    background: currentClassKey === cKey ? 'linear-gradient(135deg, #3b82f6, #2563eb)' : 'rgba(255,255,255,0.06)',
+                    color: currentClassKey === cKey ? '#fff' : '#9ca3af'
+                  }}
+                >
+                  {cKey} ({Object.keys(classes[cKey]?.students || {}).length} Öğrenci)
+                </button>
+              ))}
+            </div>
+          </div>
 
-            {/* Yeni Sınıf Aç */}
-            <div style={{ display: 'flex', gap: '6px' }}>
+          {/* Hoca İsmi Düzenleme */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+              {currentClassKey} Sınıfı Ders Öğretmeni İsmi:
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
-                placeholder="Yeni Sınıf (Örn: 10-C)"
+                value={currentTeacherName}
+                onChange={(e) => handleUpdateTeacherName(e.target.value)}
+                placeholder="Örn: Mehmet Hoca"
+                style={{ flex: 1, padding: '8px 12px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.85rem' }}
+              />
+            </div>
+          </div>
+
+          {/* Yeni Sınıf Ekleme */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fff', marginBottom: '8px' }}>
+              + Yeni Sınıf Ekle
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input
+                type="text"
+                placeholder="Sınıf Adı (örn: 8/C)"
                 value={newClassName}
                 onChange={(e) => setNewClassName(e.target.value)}
-                className="input"
-                style={{ flex: 1, padding: '6px 8px', fontSize: '0.82rem' }}
+                style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
               />
-              <button onClick={handleAddClass} className="btn btn-sm btn-primary">
-                + Sınıf Ekle
+              <input
+                type="text"
+                placeholder="Hoca İsmi"
+                value={newTeacherInput}
+                onChange={(e) => setNewTeacherInput(e.target.value)}
+                style={{ flex: 1, padding: '8px 10px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
+              />
+              <button onClick={handleAddClass} className="btn btn-primary" style={{ padding: '8px 14px', fontSize: '0.8rem' }}>
+                Ekle
               </button>
             </div>
           </div>
 
-          {/* Tekli Öğrenci Ekle */}
-          <div style={{ display: 'flex', gap: '6px' }}>
-            <input
-              type="number"
-              placeholder="Kart No (1-50)"
-              value={newStudentId}
-              onChange={(e) => setNewStudentId(e.target.value)}
-              className="input"
-              style={{ width: '100px', fontSize: '0.82rem' }}
-            />
-            <input
-              type="text"
-              placeholder="Öğrenci Adı Soyadı"
-              value={newStudentName}
-              onChange={(e) => setNewStudentName(e.target.value)}
-              className="input"
-              style={{ flex: 1, fontSize: '0.82rem' }}
-            />
-            <button onClick={addStudent} className="btn btn-sm btn-success">
-              + Ekle
-            </button>
-          </div>
-
-          {/* Mevcut Sınıf Öğrenci Listesi */}
-          <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-            {Object.entries(roster).sort(([a],[b]) => parseInt(a)-parseInt(b)).map(([sId, sName]) => (
-              <div key={sId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: '#0e1017', borderRadius: '6px', fontSize: '0.8rem', border: '1px solid rgba(255,255,255,0.06)' }}>
-                <span><strong style={{ color: 'var(--primary)' }}>#{sId}: </strong>{sName}</span>
-                <button onClick={() => removeStudent(sId)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px 4px' }}>✕</button>
-              </div>
-            ))}
-            {Object.keys(roster).length === 0 && (
-              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '14px', color: '#6b7280', fontSize: '0.8rem' }}>
-                Bu sınıfta henüz öğrenci yok.
-              </div>
-            )}
-          </div>
-
-          {/* Toplu Yapıştırma */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
-            <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginBottom: '4px' }}>
-              Toplu İsim Yapıştır (Alt alta):
+          {/* Öğrenci Ekleme & Roster */}
+          <div className="panel" style={{ padding: '16px' }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 800, color: '#fff', marginBottom: '10px' }}>
+              {currentClassKey} Öğrenci Listesi ({Object.keys(currentRoster).length})
             </div>
-            <textarea
-              rows={2}
-              value={bulkNames}
-              onChange={(e) => setBulkNames(e.target.value)}
-              placeholder="Ali Yılmaz&#10;Ayşe Kaya"
-              className="input"
-              style={{ width: '100%', fontSize: '0.8rem', marginBottom: '6px' }}
-            />
-            <button onClick={handleBulkImport} className="btn btn-sm btn-primary" style={{ width: '100%' }}>
-              {currentClass} Sınıfına Toplu Ekle
-            </button>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+              <input
+                type="number"
+                placeholder="Kart No (1-50)"
+                value={newStudentId}
+                onChange={(e) => setNewStudentId(e.target.value)}
+                style={{ width: '100px', padding: '8px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
+              />
+              <input
+                type="text"
+                placeholder="Öğrenci Adı Soyadı"
+                value={newStudentName}
+                onChange={(e) => setNewStudentName(e.target.value)}
+                style={{ flex: 1, padding: '8px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.8rem' }}
+              />
+              <button onClick={addStudent} className="btn btn-primary" style={{ padding: '8px 12px', fontSize: '0.8rem' }}>
+                Ekle
+              </button>
+            </div>
+
+            {/* Toplu Yapıştırma */}
+            <details style={{ marginBottom: '14px', background: 'rgba(255,255,255,0.02)', padding: '8px', borderRadius: '8px' }}>
+              <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: '#60a5fa', fontWeight: 700 }}>
+                📋 e-Okul / Excel'den Toplu İsim Yapıştır
+              </summary>
+              <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <textarea
+                  placeholder="Her satıra bir öğrenci ismi yapıştırın..."
+                  value={bulkNames}
+                  onChange={(e) => setBulkNames(e.target.value)}
+                  rows={4}
+                  style={{ width: '100%', padding: '8px', borderRadius: '6px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.78rem' }}
+                />
+                <button onClick={handleBulkImport} className="btn btn-sm btn-primary">
+                  Listeyi Aktar
+                </button>
+              </div>
+            </details>
+
+            {/* Mevcut Öğrenciler */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '240px', overflowY: 'auto' }}>
+              {Object.entries(currentRoster).map(([id, name]) => (
+                <div
+                  key={id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 12px',
+                    background: 'var(--bg-surface-elevated)',
+                    borderRadius: '8px',
+                    fontSize: '0.8rem'
+                  }}
+                >
+                  <span style={{ color: '#fff', fontWeight: 600 }}>
+                    <strong style={{ color: '#60a5fa', marginRight: '6px' }}>#{id}</strong>
+                    {name}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </section>
+        </div>
+      )}
+
+      {/* SEKME 4: ŞAMPİYONLAR PODYUMU & TEST SONU RAPORU */}
+      {activeTab === 'summary' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          {quizSummary ? (
+            <div className="panel" style={{ padding: '20px' }}>
+              <div style={{ textAlign: 'center', marginBottom: '18px' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '6px' }}>🏆</div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 900, color: '#fff', marginBottom: '4px' }}>
+                  {quizSummary.testTitle || 'Test Değerlendirmesi'}
+                </h2>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Toplam {quizSummary.totalQuestions} soru tamamlandı
+                </div>
+              </div>
+
+              {/* İlk 3 Öğrenci (Podyum) */}
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#fbbf24', marginBottom: '10px' }}>
+                  🥇 En Çok Doğru Yapan İlk 3 Kişi
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {(quizSummary.topStudents || []).slice(0, 3).map((st, idx) => (
+                    <div
+                      key={st.studentId}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        padding: '10px 14px',
+                        borderRadius: '10px',
+                        background: idx === 0 ? 'rgba(251, 191, 36, 0.15)' : 'var(--bg-surface-elevated)',
+                        border: idx === 0 ? '1px solid #fbbf24' : '1px solid var(--border-subtle)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}</span>
+                        <span style={{ fontWeight: 700, color: '#fff', fontSize: '0.85rem' }}>
+                          {st.studentName}
+                        </span>
+                      </div>
+                      <span style={{ fontWeight: 800, color: '#34d399', fontSize: '0.85rem' }}>
+                        {st.correctCount} Doğru (%{st.accuracyPct})
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* En Çok Yanlış Yapanlar */}
+              {(quizSummary.bottomStudents || []).length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f87171', marginBottom: '10px' }}>
+                    ⚠️ En Çok Yanlış Yapan Öğrenciler
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    {quizSummary.bottomStudents.slice(0, 3).map((st) => (
+                      <div
+                        key={st.studentId}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          padding: '8px 12px',
+                          borderRadius: '8px',
+                          background: 'rgba(239, 68, 68, 0.08)',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        <span style={{ color: '#fca5a5', fontWeight: 600 }}>{st.studentName}</span>
+                        <span style={{ color: '#ef4444', fontWeight: 800 }}>{st.wrongCount} Yanlış</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* En Çok Doğru ve Yanlış Yapılan Sorular */}
+              <div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#34d399', marginBottom: '8px' }}>
+                  🟢 En Çok Doğru Yapılan Soru
+                </div>
+                {quizSummary.mostCorrectQuestions?.[0] && (
+                  <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.08)', fontSize: '0.8rem', color: '#e5e7eb', marginBottom: '12px' }}>
+                    <strong>Soru #{quizSummary.mostCorrectQuestions[0].questionId}:</strong> {quizSummary.mostCorrectQuestions[0].text} (%{quizSummary.mostCorrectQuestions[0].successPct} Doğru)
+                  </div>
+                )}
+
+                <div style={{ fontSize: '0.85rem', fontWeight: 800, color: '#f87171', marginBottom: '8px' }}>
+                  🔴 En Çok Yanlış Yapılan Soru
+                </div>
+                {quizSummary.mostWrongQuestions?.[0] && (
+                  <div style={{ padding: '8px 12px', borderRadius: '8px', background: 'rgba(239, 68, 68, 0.08)', fontSize: '0.8rem', color: '#e5e7eb' }}>
+                    <div><strong>Soru #{quizSummary.mostWrongQuestions[0].questionId}:</strong> {quizSummary.mostWrongQuestions[0].text} (%{quizSummary.mostWrongQuestions[0].failurePct} Yanlış)</div>
+                    {quizSummary.mostWrongQuestions[0].mostCommonWrongChoice && (
+                      <div style={{ color: '#fca5a5', fontSize: '0.72rem', marginTop: '4px' }}>
+                        En çok düşülen çeldirici: <strong>{quizSummary.mostWrongQuestions[0].mostCommonWrongChoice}</strong> (Doğru: {quizSummary.mostWrongQuestions[0].correctAnswer})
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="panel" style={{ padding: '30px 16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📊</div>
+              Henüz tamamlanmış bir test oturumu yok. Soruları çözüp "Testi Bitir" butonuna bastığınızda detaylı sınıf analizi ve şampiyonlar podyumu burada belirecektir.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* YENİ TEST EKLEME MODALI */}
+      {showNewTestModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.8)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 100,
+          padding: '20px'
+        }}>
+          <div className="panel" style={{ maxWidth: '400px', width: '100%', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#fff', marginBottom: '14px' }}>
+              Yeni Test Oluştur
+            </h3>
+            <form onSubmit={handleCreateTest} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <input
+                type="text"
+                placeholder="Test Başlığı (Örn: 8. Sınıf İnkılap Tarihi)"
+                value={newTestTitle}
+                onChange={(e) => setNewTestTitle(e.target.value)}
+                style={{ padding: '10px', borderRadius: '8px', background: '#0a0d14', border: '1px solid var(--border-subtle)', color: '#fff', fontSize: '0.85rem' }}
+                autoFocus
+                required
+              />
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowNewTestModal(false)}
+                  className="btn"
+                  style={{ background: 'transparent' }}
+                >
+                  İptal
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  Oluştur
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -1,24 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+// Vercel ve üretim ortamı için doğrulanmış varsayılan kimlik bilgileri
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://wffwykpxargofmttarjl.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_mUQPPmoQp8SHQSFxRBUICQ_BbZ2ZkoI';
 
 let supabaseInstance = null;
 
 if (supabaseUrl && supabaseAnonKey) {
-  supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
-    realtime: {
-      params: {
-        eventsPerSecond: 40, // Yüksek frekanslı kart tarama için
+  try {
+    supabaseInstance = createClient(supabaseUrl, supabaseAnonKey, {
+      realtime: {
+        params: {
+          eventsPerSecond: 40,
+        }
       }
-    }
-  });
-} else {
-  console.warn(
-    '⚠️ Supabase ortam değişkenleri bulunamadı. ' +
-    '.env.local dosyasını kontrol edin. Yerel mod aktif.'
-  );
-  // Dummy client oluştur (channel metodu çağrılabilsin diye)
+    });
+  } catch (err) {
+    console.warn('Supabase createClient error:', err.message);
+  }
+}
+
+if (!supabaseInstance) {
+  // Acil durum yerel fallback
   supabaseInstance = {
     channel: () => ({
       on: function() { return this; },
@@ -26,24 +29,11 @@ if (supabaseUrl && supabaseAnonKey) {
       send: () => {},
     }),
     removeChannel: () => {},
-    auth: {
-      getSession: async () => ({ data: { session: null } }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
-      signInWithOAuth: async () => ({ error: new Error('Supabase yapılandırılmamış') }),
-      signOut: async () => {},
-    }
   };
 }
 
-/**
- * Browser tarafı Supabase client (anon key ile).
- * RLS policies tarafından korunur.
- */
 export const supabase = supabaseInstance;
 
-/**
- * Supabase client'ı döndüren helper.
- */
 export function getSupabase() {
   return supabase;
 }

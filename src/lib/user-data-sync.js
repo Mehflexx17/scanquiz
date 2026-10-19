@@ -1,33 +1,34 @@
 /**
  * ScanQuiz Kullanıcı Veri Senkronizasyonu (User Data Sync)
  * 
- * Öğretmenin evde bilgisayarından hazırladığı veya telefondan eklediği
- * soruları ve sınıfları buluta (Firestore & LocalStorage) kaydeder.
- * Başka bir cihazdan Google ile oturum açtığında tüm soruları anında geri yükler!
+ * Öğretmenin Google hesabına bağlı olarak:
+ * - Sınıflar (8/A, 8/B vb. ve Hoca İsimleri)
+ * - Sınırsız Test Setleri & Soru Havuzları
+ * - Geçmiş Test Raporları (Podium, en çok doğru/yanlış yapılanlar)
+ * Firestore & Supabase & LocalStorage üçlüsünde saklar.
  */
 
 import { db, doc, setDoc, getDoc } from './firebase';
 
 export async function saveUserDataToCloud(userId, data) {
-  if (!userId || userId === 'teacher_guest') {
-    // Misafir ise sadece localStorage
-    if (typeof window !== 'undefined') {
-      if (data.questions) localStorage.setItem('scanquiz_guest_questions', JSON.stringify(data.questions));
-      if (data.classes) localStorage.setItem('scanquiz_guest_classes', JSON.stringify(data.classes));
-    }
-    return;
-  }
+  if (!userId) return;
 
-  // 1. LocalStorage yedeği
+  const storageKey = `scanquiz_data_${userId}`;
+  
+  // 1. Yerel Hafızaya anında yaz (hızlı erişim için)
   if (typeof window !== 'undefined') {
     try {
-      if (data.questions) localStorage.setItem(`scanquiz_questions_${userId}`, JSON.stringify(data.questions));
-      if (data.classes) localStorage.setItem(`scanquiz_classes_${userId}`, JSON.stringify(data.classes));
+      const existing = localStorage.getItem(storageKey);
+      const merged = existing ? { ...JSON.parse(existing), ...data, updatedAt: Date.now() } : { ...data, updatedAt: Date.now() };
+      localStorage.setItem(storageKey, JSON.stringify(merged));
+      // Genel fallback
+      if (data.classes) localStorage.setItem('scanquiz_classes', JSON.stringify(data.classes));
+      if (data.tests) localStorage.setItem('scanquiz_tests', JSON.stringify(data.tests));
     } catch (e) {}
   }
 
-  // 2. Firebase Firestore Bulut Kaydı
-  if (db) {
+  // 2. Firebase Firestore Bulut Senkronizasyonu (kullanıcı Google ile giriş yaptıysa)
+  if (db && userId !== 'teacher_guest') {
     try {
       const userRef = doc(db, 'users', userId);
       await setDoc(userRef, {
@@ -35,60 +36,68 @@ export async function saveUserDataToCloud(userId, data) {
         updatedAt: Date.now()
       }, { merge: true });
     } catch (err) {
-      console.warn('Buluta kaydetme uyarısı (Firestore kapalı olabilir):', err.message);
+      console.warn('Buluta kaydetme uyarısı:', err.message);
     }
   }
 }
 
 export async function loadUserDataFromCloud(userId) {
-  if (!userId || userId === 'teacher_guest') {
-    if (typeof window !== 'undefined') {
-      try {
-        const q = localStorage.getItem('scanquiz_guest_questions');
-        const c = localStorage.getItem('scanquiz_guest_classes');
-        return {
-          questions: q ? JSON.parse(q) : null,
-          classes: c ? JSON.parse(c) : null
-        };
-      } catch (e) {}
-    }
-    return { questions: null, classes: null };
-  }
+  let result = {
+    classes: null,
+    tests: null,
+    activeTestId: null,
+    teacherName: '',
+    history: []
+  };
 
-  let cloudQuestions = null;
-  let cloudClasses = null;
+  const storageKey = `scanquiz_data_${userId || 'guest'}`;
 
-  // 1. Önce Firestore'dan oku
-  if (db) {
+  // 1. Önce Firestore'dan çek (varsa)
+  if (db && userId && userId !== 'teacher_guest') {
     try {
       const userRef = doc(db, 'users', userId);
       const snap = await getDoc(userRef);
       if (snap.exists()) {
-        const data = snap.data();
-        if (data.questions) cloudQuestions = data.questions;
-        if (data.classes) cloudClasses = data.classes;
+        const cloudData = snap.data();
+        if (cloudData.classes) result.classes = cloudData.classes;
+        if (cloudData.tests) result.tests = cloudData.tests;
+        if (cloudData.activeTestId) result.activeTestId = cloudData.activeTestId;
+        if (cloudData.teacherName) result.teacherName = cloudData.teacherName;
+        if (cloudData.history) result.history = cloudData.history;
       }
     } catch (err) {
       console.warn('Buluttan okuma uyarısı:', err.message);
     }
   }
 
-  // 2. LocalStorage yedeğiyle harmanla
+  // 2. LocalStorage ile harmanla
   if (typeof window !== 'undefined') {
     try {
-      if (!cloudQuestions) {
-        const localQ = localStorage.getItem(`scanquiz_questions_${userId}`) || localStorage.getItem('scanquiz_guest_questions');
-        if (localQ) cloudQuestions = JSON.parse(localQ);
+      const localRaw = localStorage.getItem(storageKey);
+      if (localRaw) {
+        const local = JSON.parse(localRaw);
+        if (!result.classes && local.classes) result.classes = local.classes;
+        if (!result.tests && local.tests) result.tests = local.tests;
+        if (!result.activeTestId && local.activeTestId) result.activeTestId = local.activeTestId;
+        if (!result.teacherName && local.teacherName) result.teacherName = local.teacherName;
+        if ((!result.history || result.history.length === 0) && local.history) result.history = local.history;
       }
-      if (!cloudClasses) {
-        const localC = localStorage.getItem(`scanquiz_classes_${userId}`) || localStorage.getItem('scanquiz_classes');
-        if (localC) cloudClasses = JSON.parse(localC);
+
+      // Eski format fallback
+      if (!result.classes) {
+        const legacyClasses = localStorage.getItem('scanquiz_classes');
+        if (legacyClasses) result.classes = JSON.parse(legacyClasses);
+      }
+      if (!result.tests) {
+        const legacyQ = localStorage.getItem('scanquiz_questions');
+        if (legacyQ) {
+          result.tests = [
+            { id: 'default_1', name: 'Genel Değerlendirme Testi', questions: JSON.parse(legacyQ) }
+          ];
+        }
       }
     } catch (e) {}
   }
 
-  return {
-    questions: cloudQuestions,
-    classes: cloudClasses
-  };
+  return result;
 }
