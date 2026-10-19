@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { auth, googleProvider, signInWithPopup, signOut as fbSignOut, onAuthStateChanged } from '@/lib/firebase';
+import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged } from '@/lib/firebase';
 import { syncEngine } from '@/lib/sync-engine';
 import { requestCameraWithGesture, configureVideoForIOS } from '@/lib/ios-safari-compat';
 import { soundEffects } from '@/lib/sound-effects';
 import { calculateRotationAngle, angleToChoice } from '@/lib/angle-math';
 import { parseQuizFile } from '@/lib/file-parser';
+import { saveUserDataToCloud, loadUserDataFromCloud } from '@/lib/user-data-sync';
 
 const DEFAULT_QUESTIONS = [
   {
@@ -87,12 +88,26 @@ export default function OgretmenScannerPage() {
   const cvRef = useRef(null);
   const fileInputRef = useRef(null);
 
-  // 1. Firebase Auth Listener
+  // 1. Firebase Auth Listener & Mobil Yönlendirme Sonucu
   useEffect(() => {
     if (!auth) {
       setAuthLoading(false);
       return;
     }
+
+    // Mobil tarayıcı yönlendirme ile giriş sonucunu yakala
+    getRedirectResult(auth).then((result) => {
+      if (result && result.user) {
+        setUser({
+          id: result.user.uid,
+          email: result.user.email,
+          displayName: result.user.displayName || 'Öğretmen',
+          photoURL: result.user.photoURL
+        });
+      }
+    }).catch((err) => {
+      console.warn('Redirect auth result:', err.message);
+    });
 
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
@@ -117,20 +132,44 @@ export default function OgretmenScannerPage() {
     return () => unsub();
   }, []);
 
-  // Google ile Giriş Yap (Firebase)
+  // Kullanıcı değiştiğinde veya Google ile girdiğinde buluttaki soruları & sınıfları yükle
+  useEffect(() => {
+    if (user && user.id && user.id !== 'teacher_guest') {
+      loadUserDataFromCloud(user.id).then((cloudData) => {
+        if (cloudData.questions && cloudData.questions.length > 0) {
+          setQuestions(cloudData.questions);
+        }
+        if (cloudData.classes && Object.keys(cloudData.classes).length > 0) {
+          setClasses(cloudData.classes);
+          const active = Object.keys(cloudData.classes)[0];
+          setCurrentClass(active);
+          setRoster(cloudData.classes[active] || {});
+        }
+      });
+    }
+  }, [user?.id]);
+
+  // Google ile Giriş Yap (Firebase - Mobilde Yönlendirmeli, Masaüstünde Popup)
   const handleGoogleLogin = async () => {
     if (!auth) {
       alert('Firebase Auth henüz hazır değil. Misafir modunda kısıtlamasız devam edebilirsiniz.');
       return;
     }
+    const isMobileDevice = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     try {
-      await signInWithPopup(auth, googleProvider);
+      if (isMobileDevice) {
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        await signInWithPopup(auth, googleProvider);
+      }
     } catch (err) {
       console.error('Google giriş hatası:', err);
-      if (err.code === 'auth/unauthorized-domain') {
+      if (err.code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (e) {}
+      } else if (err.code === 'auth/unauthorized-domain') {
         alert(`Firebase Yetki Uyarısı:\n"${window.location.hostname}" adresi Firebase Konsolu > Authentication > Settings > Authorized Domains kısmına eklenmelidir.\n\nBilgi: Oturum açmadan da kamerayı, soruları ve sınıfı eksiksiz kullanabilirsiniz!`);
-      } else if (err.code === 'auth/popup-blocked') {
-        alert('Tarayıcınız açılır pencereyi (popup) engelledi. Lütfen izin verin.');
       } else {
         alert('Giriş yapılamadı: ' + err.message);
       }
@@ -453,6 +492,7 @@ export default function OgretmenScannerPage() {
         setQuestions(parsed);
         setCurrentIndex(0);
         setImportStatus(`✓ ${parsed.length} adet soru başarıyla aktarıldı.`);
+        saveUserDataToCloud(user?.id, { questions: parsed });
         soundEffects.playReveal();
       } else {
         setImportStatus('Dosyadan soru okunamadı.');
@@ -482,14 +522,17 @@ export default function OgretmenScannerPage() {
       correctAnswer: newCorrectAnswer
     };
 
-    setQuestions((prev) => [...prev, newQ]);
+    const updatedQ = [...questions, newQ];
+    setQuestions(updatedQ);
+    saveUserDataToCloud(user?.id, { questions: updatedQ });
+
     setNewQuestionText('');
     setNewOptA('');
     setNewOptB('');
     setNewOptC('');
     setNewOptD('');
     setShowQuestionCreator(false);
-    alert('✓ Soru havuzuna eklendi!');
+    alert('✓ Soru havuzuna ve bulut hesabınıza kaydedildi!');
   };
 
   // 11. Sınıf Değiştirme & Yeni Sınıf Ekleme
@@ -521,6 +564,7 @@ export default function OgretmenScannerPage() {
       localStorage.setItem('scanquiz_current_class', trimmed);
       localStorage.setItem('scanquiz_roster', JSON.stringify({}));
     }
+    saveUserDataToCloud(user?.id, { classes: updated });
     syncEngine.emit('roster_updated', {});
     alert(`✓ ${trimmed} sınıfı eklendi!`);
   };
@@ -533,6 +577,7 @@ export default function OgretmenScannerPage() {
       localStorage.setItem('scanquiz_classes', JSON.stringify(updated));
       localStorage.setItem('scanquiz_roster', JSON.stringify(newRoster));
     }
+    saveUserDataToCloud(user?.id, { classes: updated });
     syncEngine.emit('roster_updated', newRoster);
   };
 

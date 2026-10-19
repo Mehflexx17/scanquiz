@@ -16,8 +16,10 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = typeof window !== 'undefined' ? getAuth(app) : null;
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
 export const db = typeof window !== 'undefined' ? getFirestore(app) : null;
 
-export { signInWithPopup, signOut, onAuthStateChanged } from 'firebase/auth';
+export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from 'firebase/auth';
 export { doc, setDoc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 export default app;
