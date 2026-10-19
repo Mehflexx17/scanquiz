@@ -46,11 +46,23 @@ export default function OgretmenScannerPage() {
         if (mounted) {
           if (session?.user) {
             setUser(session.user);
+          } else {
+            // Kolaylaştırılmış erişim: Oturum olmasa bile öğretmen doğrudan kamerayı açabilir
+            setUser({
+              id: 'local_teacher_' + Math.random().toString(36).substring(2, 9),
+              email: 'ogretmen@scanquiz.local',
+              user_metadata: { full_name: 'Öğretmen' },
+            });
           }
           setAuthLoading(false);
         }
       } catch (err) {
         if (mounted) {
+          setUser({
+            id: 'local_teacher_' + Math.random().toString(36).substring(2, 9),
+            email: 'ogretmen@scanquiz.local',
+            user_metadata: { full_name: 'Öğretmen' },
+          });
           setAuthLoading(false);
         }
       }
@@ -59,9 +71,8 @@ export default function OgretmenScannerPage() {
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) {
-        setUser(session?.user || null);
-        setAuthLoading(false);
+      if (mounted && session?.user) {
+        setUser(session.user);
       }
     });
 
