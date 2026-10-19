@@ -90,9 +90,11 @@ export default function SmartBoardView() {
 
   // 2. Realtime Olay Dinleyicileri
   useEffect(() => {
-    const unsubPair = syncEngine.on('host_paired', () => {
+    const unsubPair = syncEngine.on('host_paired', (payload) => {
       setIsPaired(true);
       soundEffects.playReveal();
+      // Telefona tahtanın hazır olduğunu bildir
+      syncEngine.emit('board_ack', { paired: true, pin: boardPin });
     });
 
     const unsubRoster = syncEngine.on('roster_updated', (roster) => {

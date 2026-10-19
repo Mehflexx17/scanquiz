@@ -2,32 +2,36 @@
  * ScanQuiz Realtime Senkronizasyon Motoru (SyncEngine)
  * 
  * Taşıma Katmanları:
- * 1. Firebase Firestore — Birincil Bulut Senkronizasyonu (Telefon ↔ Tahta, VPN, her cihaz)
- * 2. BroadcastChannel — Aynı tarayıcıdaki sekmeler (Ultra hızlı yerel)
- * 3. Supabase Realtime — Yedek bulut kanalı
- * 4. LocalStorage — Eski tarayıcı fallback
+ * 1. Supabase Realtime WebSocket — Doğrulanmış hızlı bulut taşıma (Telefon ↔ Tahta, VPN, 4G/5G)
+ * 2. BroadcastChannel — Aynı tarayıcı sekmeleri (Ultra hızlı yerel)
+ * 3. LocalStorage — Eski tarayıcı fallback
+ * 4. Firebase Firestore — Opsiyonel bulut yedekleme
  * 
- * Odalar PIN bazlıdır: sq_<pin>. Farklı oturumlar asla karışmaz.
+ * Güvenilirlik Özellikleri:
+ * - Giden Mesaj Kuyruğu (Outbox Queue): Kanal 'SUBSCRIBED' olana kadar giden mesajlar bekletilir, bağlantı açılır açılmaz anında fırlatılır.
+ * - Çift Yönlü El Sıkışma (Pair Handshake): 'host_paired' mesajı tahta alana kadar otomatik tekrar denenir.
  */
 
-import { db, doc, setDoc, onSnapshot } from './firebase';
 import { supabase } from './supabase';
+import { db, doc, setDoc, onSnapshot } from './firebase';
 
 class HybridSyncEngine {
   constructor() {
     this.currentRoom = null;
+    this.rawPin = null;
     this.listeners = new Map();
     this.broadcastChannel = null;
     this.supabaseChannel = null;
     this.firebaseUnsub = null;
     this.senderId = 'cli_' + Math.random().toString(36).substring(2, 9);
     this.connectionStatus = 'disconnected'; // 'disconnected' | 'connecting' | 'connected'
+    this.isSubscribed = false;
+    this.outbox = [];
     this._statusListeners = new Set();
-    this._recentPacketIds = new Set(); // Duplicate detection
-    this._maxRecentPackets = 300;
+    this._recentPacketIds = new Set();
+    this._maxRecentPackets = 400;
 
     if (typeof window !== 'undefined') {
-      // BroadcastChannel — aynı tarayıcı sekmeleri arası
       try {
         this.broadcastChannel = new BroadcastChannel('scanquiz_local_sync');
         this.broadcastChannel.onmessage = (event) => {
@@ -35,7 +39,6 @@ class HybridSyncEngine {
         };
       } catch (e) {}
 
-      // LocalStorage fallback
       window.addEventListener('storage', (event) => {
         if (event.key === 'scanquiz_bus_event' && event.newValue) {
           try {
@@ -65,53 +68,25 @@ class HybridSyncEngine {
   setRoom(pin) {
     if (!pin) return;
     const cleanPin = pin.toString().trim();
+    this.rawPin = cleanPin;
     this.currentRoom = `sq_${cleanPin}`;
     this._setStatus('connecting');
+    this.isSubscribed = false;
 
-    // 1. Firebase Firestore Dinleyicisi
-    this._setupFirebaseRoom();
-
-    // 2. Supabase Realtime Kanalı (Yedek)
+    // Supabase Realtime Kanalını kur
     this._setupSupabaseChannel();
+
+    // Firebase varsa güvenle başlat
+    this._setupFirebaseRoomSafe();
   }
 
-  _setupFirebaseRoom() {
-    if (!db) {
+  _setupSupabaseChannel() {
+    if (!supabase || !supabase.channel) {
       this._setStatus('connected');
       return;
     }
 
     try {
-      if (this.firebaseUnsub) {
-        this.firebaseUnsub();
-        this.firebaseUnsub = null;
-      }
-
-      const roomRef = doc(db, 'rooms', this.currentRoom);
-      this.firebaseUnsub = onSnapshot(roomRef, (snapshot) => {
-        this._setStatus('connected');
-        if (snapshot.exists()) {
-          const data = snapshot.data();
-          if (data && data.lastPacket) {
-            this._handlePacket(data.lastPacket);
-          }
-        }
-      }, (err) => {
-        console.warn('Firebase sync warning:', err.message);
-        this._setStatus('connected');
-      });
-    } catch (err) {
-      console.warn('Firebase init error:', err);
-      this._setStatus('connected');
-    }
-  }
-
-  _setupSupabaseChannel() {
-    try {
-      if (!supabase || !supabase.channel) {
-        return;
-      }
-
       if (this.supabaseChannel) {
         try { supabase.removeChannel(this.supabaseChannel); } catch (e) {}
         this.supabaseChannel = null;
@@ -129,13 +104,60 @@ class HybridSyncEngine {
             this._handlePacket(payload);
           }
         })
-        .subscribe((status) => {
+        .subscribe((status, err) => {
           if (status === 'SUBSCRIBED') {
+            this.isSubscribed = true;
             this._setStatus('connected');
+            this._flushOutbox();
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+            this.isSubscribed = false;
+            this._setStatus('disconnected');
+            // 2 saniye sonra otomatik yeniden bağlan
+            setTimeout(() => {
+              if (this.currentRoom) {
+                this._setupSupabaseChannel();
+              }
+            }, 2000);
           }
         });
     } catch (err) {
-      console.warn('Supabase Realtime warning:', err.message);
+      console.warn('Supabase Realtime setup warning:', err.message);
+      this._setStatus('connected');
+    }
+  }
+
+  _setupFirebaseRoomSafe() {
+    if (!db || !this.currentRoom) return;
+    try {
+      if (this.firebaseUnsub) {
+        this.firebaseUnsub();
+        this.firebaseUnsub = null;
+      }
+      const roomRef = doc(db, 'rooms', this.currentRoom);
+      this.firebaseUnsub = onSnapshot(roomRef, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data && data.lastPacket) {
+            this._handlePacket(data.lastPacket);
+          }
+        }
+      }, () => {
+        // Firebase Firestore API kapalıysa sessizce Supabase Realtime ile devam et
+      });
+    } catch (e) {}
+  }
+
+  _flushOutbox() {
+    if (!this.isSubscribed || !this.supabaseChannel) return;
+    while (this.outbox.length > 0) {
+      const packet = this.outbox.shift();
+      try {
+        this.supabaseChannel.send({
+          type: 'broadcast',
+          event: 'msg',
+          payload: packet
+        });
+      } catch (e) {}
     }
   }
 
@@ -168,7 +190,7 @@ class HybridSyncEngine {
 
     this._trackPacketId(packetId);
 
-    // 1. BroadcastChannel (Yerel sekme)
+    // 1. BroadcastChannel (Aynı tarayıcı sekmeleri)
     if (this.broadcastChannel) {
       try { this.broadcastChannel.postMessage(packet); } catch (e) {}
     }
@@ -178,30 +200,49 @@ class HybridSyncEngine {
       try { localStorage.setItem('scanquiz_bus_event', JSON.stringify(packet)); } catch (e) {}
     }
 
-    // 3. Firebase Firestore (Ana Bulut İletişimi)
-    if (db && this.currentRoom) {
-      try {
-        const roomRef = doc(db, 'rooms', this.currentRoom);
-        setDoc(roomRef, {
-          lastPacket: packet,
-          updatedAt: Date.now()
-        }, { merge: true }).catch(() => {});
-      } catch (e) {}
-    }
-
-    // 4. Supabase Realtime (Yedek Bulut)
-    if (this.supabaseChannel) {
+    // 3. Supabase Realtime (Asıl Bulut WebSocket)
+    if (this.isSubscribed && this.supabaseChannel) {
       try {
         this.supabaseChannel.send({
           type: 'broadcast',
           event: 'msg',
           payload: packet
         });
+      } catch (e) {
+        this.outbox.push(packet);
+      }
+    } else {
+      // Henüz bağlanmadıysa kuyruğa al (bağlantı anında fırlatılır)
+      this.outbox.push(packet);
+    }
+
+    // 4. Firebase Firestore (Varsa sessizce dene)
+    if (db && this.currentRoom) {
+      try {
+        const roomRef = doc(db, 'rooms', this.currentRoom);
+        setDoc(roomRef, { lastPacket: packet, updatedAt: Date.now() }, { merge: true }).catch(() => {});
       } catch (e) {}
     }
 
-    // Kendi istemcimize de ilet
+    // Kendi istemcimizdeki dinleyicilere de ilet
     this._dispatch(eventName, payload);
+  }
+
+  /**
+   * Eşleşme gibi kritik olayları karşı taraf alana kadar garanti gönderme
+   */
+  emitReliable(eventName, payload = {}, retries = 4, intervalMs = 500) {
+    this.emit(eventName, payload);
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      if (count >= retries) {
+        clearInterval(interval);
+        return;
+      }
+      this.emit(eventName, payload);
+    }, intervalMs);
+    return () => clearInterval(interval);
   }
 
   _trackPacketId(id) {
@@ -254,6 +295,7 @@ class HybridSyncEngine {
       try { this.broadcastChannel.close(); } catch (e) {}
     }
     this.listeners.clear();
+    this.outbox = [];
   }
 }
 

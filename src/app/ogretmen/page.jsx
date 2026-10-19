@@ -119,11 +119,21 @@ export default function OgretmenScannerPage() {
 
   // Google ile Giriş Yap (Firebase)
   const handleGoogleLogin = async () => {
-    if (!auth) return;
+    if (!auth) {
+      alert('Firebase Auth henüz hazır değil. Misafir modunda kısıtlamasız devam edebilirsiniz.');
+      return;
+    }
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      console.warn('Google giriş hatası:', err.message);
+      console.error('Google giriş hatası:', err);
+      if (err.code === 'auth/unauthorized-domain') {
+        alert(`Firebase Yetki Uyarısı:\n"${window.location.hostname}" adresi Firebase Konsolu > Authentication > Settings > Authorized Domains kısmına eklenmelidir.\n\nBilgi: Oturum açmadan da kamerayı, soruları ve sınıfı eksiksiz kullanabilirsiniz!`);
+      } else if (err.code === 'auth/popup-blocked') {
+        alert('Tarayıcınız açılır pencereyi (popup) engelledi. Lütfen izin verin.');
+      } else {
+        alert('Giriş yapılamadı: ' + err.message);
+      }
     }
   };
 
@@ -133,6 +143,14 @@ export default function OgretmenScannerPage() {
     }
     setUser({ id: 'teacher_guest', email: '', displayName: 'Öğretmen', photoURL: null });
   };
+
+  // Tahtadan yanıt (ACK) gelirse eşleşmeyi doğrula
+  useEffect(() => {
+    const unsubAck = syncEngine.on('board_ack', () => {
+      setIsPaired(true);
+    });
+    return () => unsubAck();
+  }, []);
 
   // 2. Sınıfları ve Soru Listesini LocalStorage'dan Yükle
   useEffect(() => {
@@ -195,7 +213,7 @@ export default function OgretmenScannerPage() {
     }
   }, []);
 
-  // 4. PIN ile Tahtaya Bağlanma
+  // 4. PIN ile Tahtaya Bağlanma (Garanti İletimli Burst)
   const handlePair = (e) => {
     if (e) e.preventDefault();
     const cleanPin = pin.trim();
@@ -205,10 +223,11 @@ export default function OgretmenScannerPage() {
     }
 
     syncEngine.setRoom(cleanPin);
-    syncEngine.emit('host_paired', {
+    // Güvenilir çoklu burst ile tahtaya ilet (5 deneme, 400ms aralıkla)
+    syncEngine.emitReliable('host_paired', {
       teacherId: user?.id,
       timestamp: Date.now()
-    });
+    }, 5, 400);
 
     setIsPaired(true);
     soundEffects.playSubmit();

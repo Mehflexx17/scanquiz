@@ -108,7 +108,7 @@ export default function HostControlPage() {
     }
 
     syncEngine.setRoom(cleanPin);
-    syncEngine.emit('host_paired', { pin: cleanPin });
+    syncEngine.emitReliable('host_paired', { pin: cleanPin }, 5, 400);
     setIsPaired(true);
     soundEffects.playSubmit();
   };
