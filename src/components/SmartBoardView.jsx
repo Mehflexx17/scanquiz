@@ -36,12 +36,29 @@ export default function SmartBoardView() {
   useEffect(() => { isPairedRef.current = isPaired; }, [isPaired]);
   useEffect(() => { activeQuestionRef.current = activeQuestion; }, [activeQuestion]);
 
-  // 1. PIN Üretimi & 20 Saniyelik Otomatik Yenilenme
+  // Mobilden girildiyse otomatik /ogretmen sayfasına yönlendir
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 768;
+      if (isMobile && window.location.pathname === '/') {
+        window.location.replace('/ogretmen');
+      }
+    }
+  }, []);
+
+  // 1. PIN Üretimi & 30 Dakikalık Uzatılmış Süre (İstendiğinde Yenileme)
+  const refreshPin = () => {
+    const freshPin = generateCryptographicPin();
+    setBoardPin(freshPin);
+    syncEngine.setRoom(freshPin);
+    setPinCountdown(1800); // 30 dakika
+  };
+
   useEffect(() => {
     const initialPin = generateCryptographicPin();
     setBoardPin(initialPin);
     syncEngine.setRoom(initialPin);
-    setPinCountdown(20);
+    setPinCountdown(1800); // 30 dakika
 
     const timer = setInterval(() => {
       if (isPairedRef.current) {
@@ -54,7 +71,7 @@ export default function SmartBoardView() {
           const freshPin = generateCryptographicPin();
           setBoardPin(freshPin);
           syncEngine.setRoom(freshPin);
-          return 20;
+          return 1800;
         }
         return prev - 1;
       });
@@ -345,10 +362,20 @@ export default function SmartBoardView() {
             {!isPaired ? (
               <div style={{ marginTop: '16px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', fontSize: '0.82rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Güvenlik Rotasyonu:</span>
-                  <span style={{ color: '#60a5fa', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
-                    {pinCountdown}s sonra yenilenir
-                  </span>
+                  <span style={{ color: 'var(--text-muted)' }}>Kod Geçerlilik Süresi:</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ color: '#60a5fa', fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                      {Math.floor(pinCountdown / 60)} dk {pinCountdown % 60} sn
+                    </span>
+                    <button
+                      onClick={refreshPin}
+                      className="btn btn-sm"
+                      style={{ fontSize: '0.72rem', padding: '2px 8px', background: 'rgba(255,255,255,0.06)' }}
+                      title="Yeni bir PIN kodu üret"
+                    >
+                      ↻ Kodu Yenile
+                    </button>
+                  </div>
                 </div>
                 <div style={{
                   width: '100%',
@@ -359,7 +386,7 @@ export default function SmartBoardView() {
                 }}>
                   <div style={{
                     height: '100%',
-                    width: `${(pinCountdown / 20) * 100}%`,
+                    width: `${(pinCountdown / 1800) * 100}%`,
                     background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
                     transition: 'width 1s linear'
                   }} />
