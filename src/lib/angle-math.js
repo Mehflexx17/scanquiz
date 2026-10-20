@@ -10,8 +10,23 @@
  * @returns {number} 0-360 arası normalize edilmiş açı (derece)
  */
 export function calculateRotationAngle(x0, y0, x1, y1) {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
+  let startX, startY, endX, endY;
+
+  // Hem obje formatını {x, y} hem de 4 ayrı koordinatı (x0, y0, x1, y1) destekle
+  if (typeof x0 === 'object' && x0 !== null) {
+    startX = Number(x0.x) || 0;
+    startY = Number(x0.y) || 0;
+    endX = y0 && typeof y0 === 'object' ? (Number(y0.x) || 0) : 0;
+    endY = y0 && typeof y0 === 'object' ? (Number(y0.y) || 0) : 0;
+  } else {
+    startX = Number(x0) || 0;
+    startY = Number(y0) || 0;
+    endX = Number(x1) || 0;
+    endY = Number(y1) || 0;
+  }
+
+  const dx = endX - startX;
+  const dy = endY - startY;
 
   let angleDeg = Math.atan2(dy, dx) * (180 / Math.PI);
 
@@ -20,7 +35,7 @@ export function calculateRotationAngle(x0, y0, x1, y1) {
     angleDeg += 360;
   }
 
-  return angleDeg;
+  return isNaN(angleDeg) ? 0 : angleDeg;
 }
 
 /**

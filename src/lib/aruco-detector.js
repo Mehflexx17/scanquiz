@@ -32,13 +32,14 @@ function bitsToNumber(mat) {
   return val;
 }
 
-// 50 kart için A (0°), B (90°), C (180°), D (270°) eşleştirmeleri
+// 50 kart için A (0°), D (90° saat yönü), C (180°), B (270° saat yönü / 90° saatin tersi)
+// Kartın sağ kenarındaki B'yi yukarı çevirmek saatin tersine 90° (270° cw rot=3) rotasyon demektir.
+// Kartın sol kenarındaki D'yi yukarı çevirmek saat yönünde 90° (rot=1) rotasyon demektir.
 for (let id = 0; id < DICT_SIZE; id++) {
   let currentMat = getArucoBits(id);
-  const choices = ['A', 'B', 'C', 'D'];
+  const choices = ['A', 'D', 'C', 'B'];
   for (let rot = 0; rot < 4; rot++) {
     const num = bitsToNumber(currentMat);
-    // rot=0 -> 'A' üstte, rot=1 -> 'B' üstte, rot=2 -> 'C' üstte, rot=3 -> 'D' üstte
     ROTATION_LOOKUP.set(num, {
       studentId: id + 1,
       choice: choices[rot],
@@ -167,8 +168,8 @@ function detectMarkersWithOpenCV(canvas, cv) {
           }
         }
 
-        // Dış çerçevenin en az %75'i siyah olmalı
-        if (borderBlackCount / totalBorderCells >= 0.75) {
+        // Dış çerçevenin en az %55'i siyah olmalı (ışık ve eğik açılara karşı toleranslı)
+        if (borderBlackCount / totalBorderCells >= 0.55) {
           // 4x4 iç veriyi oku
           let bitsVal = 0;
           for (let r = 1; r <= 4; r++) {
@@ -181,7 +182,7 @@ function detectMarkersWithOpenCV(canvas, cv) {
 
           const match = findBestMatch(bitsVal);
           if (match && !results.some(r => r.studentId === match.studentId)) {
-            const angle = calculateRotationAngle(ordered[0], ordered[1], ordered[2], ordered[3]);
+            const angle = calculateRotationAngle(ordered[0], ordered[1]);
             results.push({
               studentId: match.studentId,
               choice: match.choice,
@@ -285,7 +286,7 @@ function sampleGridPure(data, imgWidth, startX, startY, size) {
     }
   }
 
-  if (borderBlack / totalBorder < 0.75) return null;
+  if (borderBlack / totalBorder < 0.55) return null;
 
   let bitsVal = 0;
   for (let r = 1; r <= 4; r++) {

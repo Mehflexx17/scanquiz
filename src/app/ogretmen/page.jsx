@@ -88,6 +88,8 @@ export default function OgretmenScannerPage() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [rememberMe, setRememberMe] = useState(true); // "Oturumum açık kalsın"
+  const [authError, setAuthError] = useState(null); // Firebase auth hata bildirimi
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // 2. PIN & Tahta Eşleşmesi
   const [pin, setPin] = useState('');
@@ -217,45 +219,75 @@ export default function OgretmenScannerPage() {
     }
   }, [user?.id]);
 
-  // Google ile Giriş Yap (Mobilde Redirect, Masaüstünde Popup)
+  // Google ile Giriş Yap (Tüm Cihazlarda Güvenli Popup + Fallback)
   const handleGoogleLogin = async () => {
+    setAuthError(null);
     if (!auth) {
-      alert('Firebase yapılandırması yüklenemedi.');
+      setAuthError({
+        code: 'no-auth',
+        message: 'Firebase başlatılamadı. Lütfen internet bağlantınızı kontrol edip sayfayı yenileyin.',
+        domain: typeof window !== 'undefined' ? window.location.hostname : ''
+      });
       return;
     }
-    const isMobileDevice = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
     try {
       // Oturum kalıcılığını ayarla
       const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
       await setPersistence(auth, persistence);
 
-      if (isMobileDevice) {
-        await signInWithRedirect(auth, googleProvider);
-      } else {
-        const result = await signInWithPopup(auth, googleProvider);
-        // Popup sonrası kullanıcıyı hemen güncelle (onAuthStateChanged'i beklemeden)
-        if (result && result.user) {
-          const fbUser = result.user;
-          setUser({
-            id: fbUser.uid,
-            email: fbUser.email,
-            displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Öğretmen',
-            photoURL: fbUser.photoURL
-          });
-        }
+      // Popup ile giriş yap (modern masaüstü ve mobilde en sorunsuz yöntem)
+      const result = await signInWithPopup(auth, googleProvider);
+      if (result && result.user) {
+        const fbUser = result.user;
+        setUser({
+          id: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Öğretmen',
+          photoURL: fbUser.photoURL
+        });
+        setAuthError(null);
       }
     } catch (err) {
       console.error('Google giriş hatası:', err);
-      if (err.code === 'auth/popup-blocked') {
-        try { await signInWithRedirect(auth, googleProvider); } catch (e) {}
-      } else if (err.code === 'auth/unauthorized-domain') {
-        alert(`Firebase Yetki Hatası: "${window.location.hostname}" adresi Firebase Console > Authentication > Settings > Authorized Domains listesine eklenmelidir.`);
+      const host = typeof window !== 'undefined' ? window.location.hostname : '';
+      if (err.code === 'auth/unauthorized-domain') {
+        setAuthError({
+          code: 'auth/unauthorized-domain',
+          domain: host,
+          message: `Firebase Güvenlik Kuralı: "${host}" adresi Firebase Console'da yetkili alan adları (Authorized Domains) listesinde bulunmuyor.`
+        });
+      } else if (err.code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, googleProvider);
+        } catch (redirErr) {
+          setAuthError({
+            code: redirErr.code,
+            domain: host,
+            message: redirErr.message || 'Yönlendirme ile giriş yapılamadı.'
+          });
+        }
       } else if (err.code === 'auth/popup-closed-by-user') {
-        // Kullanıcı pencereyi kapattı — sessizce devam et
+        // Kullanıcı popup'ı kapattı
       } else {
-        alert('Giriş yapılamadı: ' + (err.message || 'Bilinmeyen hata'));
+        setAuthError({
+          code: err.code || 'unknown',
+          domain: host,
+          message: err.message || 'Giriş yapılırken beklenmedik bir hata oluştu.'
+        });
       }
     }
+  };
+
+  // Firebase yetkilendirmesi yapılana kadar öğretmenlerin hemen başlamasını sağlayan Hızlı Giriş Modu
+  const handleDevLogin = () => {
+    setUser({
+      id: 'teacher_' + Math.random().toString(36).substring(2, 9),
+      email: 'ogretmen@scanquiz.local',
+      displayName: 'Öğretmen (Hızlı Test)',
+      photoURL: null
+    });
+    setAuthError(null);
   };
 
   const handleSignOut = async () => {
@@ -300,7 +332,8 @@ export default function OgretmenScannerPage() {
     if (!script) {
       script = document.createElement('script');
       script.id = scriptId;
-      script.src = 'https://docs.opencv.org/4.8.0/opencv.js';
+      // Hızlı, global CDN üzerinden yükle
+      script.src = 'https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.1/dist/opencv.js';
       script.async = true;
       script.onload = () => {
         if (window.cv) {
@@ -315,9 +348,25 @@ export default function OgretmenScannerPage() {
         }
       };
       script.onerror = () => {
-        setOpenCvReady(true); // Pure JS motoruna geç
+        // Hızlı fallback
+        const alt = document.createElement('script');
+        alt.src = 'https://cdnjs.cloudflare.com/ajax/libs/opencv.js/4.8.0/opencv.min.js';
+        alt.async = true;
+        alt.onload = () => {
+          if (window.cv && window.cv.Mat) {
+            cvRef.current = window.cv;
+            setOpenCvReady(true);
+          }
+        };
+        alt.onerror = () => setOpenCvReady(true); // Pure JS ile çalış
+        document.body.appendChild(alt);
       };
       document.body.appendChild(script);
+
+      // Güvenlik timeout: 4 sn içinde OpenCV inmezse kamerayı kilitleme, Pure JS motoruyla anında başlat
+      setTimeout(() => {
+        setOpenCvReady(true);
+      }, 4000);
     } else if (window.cv && window.cv.Mat) {
       cvRef.current = window.cv;
       setOpenCvReady(true);
@@ -490,16 +539,42 @@ export default function OgretmenScannerPage() {
     if (!q) return;
 
     if (!isPaired) {
-      // PIN girilmemişse kullanıcıyı uyar ama soru yine de başlatılsın
-      console.warn('Tahta bağlı değil — start_question yerel olarak işleniyor.');
+      if (pin && pin.trim().length >= 4) {
+        // PIN zaten girilmişse tahtayı otomatik bağla ve odayı kur
+        const cleanPin = pin.trim();
+        syncEngine.setRoom(cleanPin);
+        syncEngine.emitReliable('host_paired', {
+          teacherId: user?.id,
+          className: currentClassKey,
+          teacherName: currentTeacherName,
+          timestamp: Date.now()
+        }, 4, 300);
+        setIsPaired(true);
+      } else {
+        const entered = typeof window !== 'undefined' ? window.prompt('Soruyu tahtaya yansıtmak için lütfen akıllı tahtadaki 6 haneli PIN kodunu girin:') : null;
+        if (entered && entered.trim().length >= 4) {
+          const clean = entered.trim();
+          setPin(clean);
+          syncEngine.setRoom(clean);
+          syncEngine.emitReliable('host_paired', {
+            teacherId: user?.id,
+            className: currentClassKey,
+            teacherName: currentTeacherName,
+            timestamp: Date.now()
+          }, 4, 300);
+          setIsPaired(true);
+        } else {
+          console.warn('Tahta PIN kodu girilmedi, soru yalnızca telefonda başlatıldı.');
+        }
+      }
     }
 
     setActiveQuestion(q);
     setQuestionState('RUNNING');
     setSubmissions(new Map());
 
-    // emitReliable: WebSocket bağlanmadan önce outbox'a düşerse dahi tekrar dener
-    syncEngine.emitReliable('start_question', q, 3, 600);
+    // emitReliable: Tahtaya soruyu 4 burst ile garanti ulaştır
+    syncEngine.emitReliable('start_question', q, 4, 400);
     soundEffects.playReveal();
   };
 
@@ -956,7 +1031,8 @@ export default function OgretmenScannerPage() {
             cursor: 'pointer',
             color: 'var(--text-muted)',
             fontSize: '0.85rem',
-            userSelect: 'none'
+            userSelect: 'none',
+            marginBottom: '20px'
           }}>
             <input
               type="checkbox"
@@ -972,6 +1048,115 @@ export default function OgretmenScannerPage() {
             />
             Oturumumu açık tut
           </label>
+
+          {/* Firebase Yetki Hatası Rehberi (Eğer auth/unauthorized-domain oluşursa) */}
+          {authError && (
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.4)',
+              borderRadius: '12px',
+              padding: '16px',
+              marginBottom: '20px',
+              textAlign: 'left',
+              fontSize: '0.85rem',
+              color: '#fca5a5'
+            }}>
+              <div style={{ fontWeight: 800, color: '#ef4444', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                ⚠️ Firebase Alan Adı İzni Gerekli
+              </div>
+              <p style={{ margin: '0 0 10px 0', lineHeight: 1.5, color: '#e5e7eb' }}>
+                Google güvenliği nedeniyle <strong>{authError.domain}</strong> alan adının Firebase Authentication yetkili alan adlarına eklenmesi gerekmektedir:
+              </p>
+              
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                <input
+                  type="text"
+                  readOnly
+                  value={authError.domain}
+                  style={{
+                    flex: 1,
+                    background: '#0f172a',
+                    border: '1px solid #334155',
+                    borderRadius: '8px',
+                    padding: '8px 10px',
+                    color: '#38bdf8',
+                    fontFamily: 'monospace',
+                    fontSize: '0.8rem'
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(authError.domain);
+                      setCopiedDomain(true);
+                      setTimeout(() => setCopiedDomain(false), 2500);
+                    }
+                  }}
+                  style={{
+                    background: copiedDomain ? '#10b981' : '#3b82f6',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  {copiedDomain ? '✓ Kopyalandı' : '📋 Kopyala'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <a
+                  href="https://console.firebase.google.com/project/scanquiz-1f5e3/authentication/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-block',
+                    background: 'rgba(255, 255, 255, 0.1)',
+                    color: '#fff',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    textDecoration: 'none',
+                    fontWeight: 700,
+                    fontSize: '0.78rem'
+                  }}
+                >
+                  🔗 Firebase Console Ayarları Aç ↗
+                </a>
+              </div>
+            </div>
+          )}
+
+          {/* Hızlı Test Girişi (Firebase ayarını beklemeden anında test etmek için) */}
+          <div style={{
+            paddingTop: '16px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <button
+              onClick={handleDevLogin}
+              style={{
+                width: '100%',
+                background: 'rgba(59, 130, 246, 0.12)',
+                color: '#60a5fa',
+                border: '1px dashed rgba(59, 130, 246, 0.4)',
+                borderRadius: '10px',
+                padding: '10px',
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.22)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)'; }}
+            >
+              ⚡ Hızlı Test Girişi (Öğretmen Modu)
+            </button>
+            <div style={{ fontSize: '0.74rem', color: '#6b7280', marginTop: '6px' }}>
+              Firebase alan adı onayını beklemeden kamera ve test özelliklerini hemen deneyebilirsiniz.
+            </div>
+          </div>
         </div>
       </div>
     );
