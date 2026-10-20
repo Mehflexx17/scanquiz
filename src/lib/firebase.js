@@ -20,6 +20,15 @@ googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const db = typeof window !== 'undefined' ? getFirestore(app) : null;
 
-export { signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged } from 'firebase/auth';
+export {
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence
+} from 'firebase/auth';
 export { doc, setDoc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore';
 export default app;

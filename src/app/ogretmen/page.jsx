@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
-import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged } from '@/lib/firebase';
+import { auth, googleProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut as fbSignOut, onAuthStateChanged, setPersistence, browserLocalPersistence, browserSessionPersistence } from '@/lib/firebase';
 import { syncEngine } from '@/lib/sync-engine';
 import { requestCameraWithGesture, configureVideoForIOS } from '@/lib/ios-safari-compat';
 import { soundEffects } from '@/lib/sound-effects';
@@ -87,7 +87,7 @@ export default function OgretmenScannerPage() {
   // 1. Firebase Google Auth
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [guestBypass, setGuestBypass] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true); // "Oturumum açık kalsın"
 
   // 2. PIN & Tahta Eşleşmesi
   const [pin, setPin] = useState('');
@@ -160,25 +160,28 @@ export default function OgretmenScannerPage() {
       return;
     }
 
+    // Redirect sonucunu kontrol et (mobil yönlendirmeden sonra)
     getRedirectResult(auth).then((result) => {
       if (result && result.user) {
+        const fbUser = result.user;
         setUser({
-          id: result.user.uid,
-          email: result.user.email,
-          displayName: result.user.displayName || 'Öğretmen',
-          photoURL: result.user.photoURL
+          id: fbUser.uid,
+          email: fbUser.email,
+          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Öğretmen',
+          photoURL: fbUser.photoURL
         });
       }
     }).catch((err) => {
       console.warn('Redirect auth result:', err.message);
     });
 
+    // Auth durumunu dinle — giriş/çıkış/yeniden yükleme
     const unsub = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
         setUser({
           id: fbUser.uid,
           email: fbUser.email,
-          displayName: fbUser.displayName || 'Öğretmen',
+          displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Öğretmen',
           photoURL: fbUser.photoURL
         });
       } else {
@@ -187,7 +190,13 @@ export default function OgretmenScannerPage() {
       setAuthLoading(false);
     });
 
-    return () => unsub();
+    // Güvenlik: 6 saniye içinde auth yanıt vermezse loading'i kapat
+    const fallback = setTimeout(() => setAuthLoading(false), 6000);
+
+    return () => {
+      unsub();
+      clearTimeout(fallback);
+    };
   }, []);
 
   // Google Girişinden Sonra Kullanıcının Buluttaki Testlerini ve Sınıflarını Yükle
@@ -211,26 +220,40 @@ export default function OgretmenScannerPage() {
   // Google ile Giriş Yap (Mobilde Redirect, Masaüstünde Popup)
   const handleGoogleLogin = async () => {
     if (!auth) {
-      alert('Firebase yapılandırması yüklenemedi. Geliştirici modunda devam edebilirsiniz.');
-      setGuestBypass(true);
+      alert('Firebase yapılandırması yüklenemedi.');
       return;
     }
     const isMobileDevice = typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
     try {
+      // Oturum kalıcılığını ayarla
+      const persistence = rememberMe ? browserLocalPersistence : browserSessionPersistence;
+      await setPersistence(auth, persistence);
+
       if (isMobileDevice) {
         await signInWithRedirect(auth, googleProvider);
       } else {
-        await signInWithPopup(auth, googleProvider);
+        const result = await signInWithPopup(auth, googleProvider);
+        // Popup sonrası kullanıcıyı hemen güncelle (onAuthStateChanged'i beklemeden)
+        if (result && result.user) {
+          const fbUser = result.user;
+          setUser({
+            id: fbUser.uid,
+            email: fbUser.email,
+            displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Öğretmen',
+            photoURL: fbUser.photoURL
+          });
+        }
       }
     } catch (err) {
       console.error('Google giriş hatası:', err);
       if (err.code === 'auth/popup-blocked') {
         try { await signInWithRedirect(auth, googleProvider); } catch (e) {}
       } else if (err.code === 'auth/unauthorized-domain') {
-        alert(`Firebase Yetki Uyarısı:\n"${window.location.hostname}" adresi Firebase Konsolu > Authentication > Settings > Authorized Domains kısmına eklenmelidir.\n\nBilgi: Geliştirici modu ile devam edebilirsiniz.`);
-        setGuestBypass(true);
+        alert(`Firebase Yetki Hatası: "${window.location.hostname}" adresi Firebase Console > Authentication > Settings > Authorized Domains listesine eklenmelidir.`);
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        // Kullanıcı pencereyi kapattı — sessizce devam et
       } else {
-        alert('Giriş yapılamadı: ' + err.message);
+        alert('Giriş yapılamadı: ' + (err.message || 'Bilinmeyen hata'));
       }
     }
   };
@@ -240,7 +263,6 @@ export default function OgretmenScannerPage() {
       try { await fbSignOut(auth); } catch (e) {}
     }
     setUser(null);
-    setGuestBypass(false);
   };
 
   // URL'den PIN parametresi varsa otomatik doldur
@@ -362,10 +384,10 @@ export default function OgretmenScannerPage() {
   const recordDetection = useCallback((studentId, choice, angle) => {
     const now = Date.now();
     const last = scannedDebounceRef.current.get(studentId) || 0;
-    if (now - last < 1000) return; // 1 saniye debounce
+    if (now - last < 800) return; // 800ms debounce — çok hızlı tekrar taramayı önler
     scannedDebounceRef.current.set(studentId, now);
 
-    // Tahtaya Realtime olarak yayınla
+    // Tahtaya Realtime olarak yayınla (soru aktif olmasa bile — tahta kendi filtreler)
     syncEngine.emit('student_scanned_raw', {
       studentId,
       choice,
@@ -467,11 +489,17 @@ export default function OgretmenScannerPage() {
     const q = currentQuestions[idx];
     if (!q) return;
 
+    if (!isPaired) {
+      // PIN girilmemişse kullanıcıyı uyar ama soru yine de başlatılsın
+      console.warn('Tahta bağlı değil — start_question yerel olarak işleniyor.');
+    }
+
     setActiveQuestion(q);
     setQuestionState('RUNNING');
     setSubmissions(new Map());
 
-    syncEngine.emit('start_question', q);
+    // emitReliable: WebSocket bağlanmadan önce outbox'a düşerse dahi tekrar dener
+    syncEngine.emitReliable('start_question', q, 3, 600);
     soundEffects.playReveal();
   };
 
@@ -500,12 +528,13 @@ export default function OgretmenScannerPage() {
       }
     }));
 
-    syncEngine.emit('end_question', {
+    // emitReliable: tahta cevapları kesinlikle alsın
+    syncEngine.emitReliable('end_question', {
       questionId: activeQuestion.id,
       correctAnswer: activeQuestion.correctAnswer,
       results: rawResults,
       stats
-    });
+    }, 3, 500);
 
     soundEffects.playReveal();
   };
@@ -843,10 +872,10 @@ export default function OgretmenScannerPage() {
   const pendingCount = pendingStudents.length;
 
   // GOOGLE LOGIN GATE (Oturum açılmadıysa zorunlu giriş ekranı)
-  if (!user && !guestBypass && !authLoading) {
+  if (!user && !authLoading) {
     return (
       <div style={{
-        maxWidth: '480px',
+        maxWidth: '440px',
         margin: '40px auto',
         padding: '24px 20px',
         minHeight: '80vh',
@@ -859,7 +888,7 @@ export default function OgretmenScannerPage() {
         <div className="panel" style={{
           padding: '40px 28px',
           width: '100%',
-          border: '2px solid rgba(59, 130, 246, 0.4)',
+          border: '2px solid rgba(59, 130, 246, 0.35)',
           boxShadow: '0 12px 40px rgba(0, 0, 0, 0.6)'
         }}>
           <div style={{
@@ -877,15 +906,16 @@ export default function OgretmenScannerPage() {
             🎓
           </div>
 
-          <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: '#fff', marginBottom: '8px' }}>
-            Öğretmen Girişi
+          <h1 style={{ fontSize: '1.7rem', fontWeight: 900, color: '#fff', marginBottom: '8px' }}>
+            Öğretmen Paneli
           </h1>
 
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '28px', lineHeight: 1.5 }}>
-            Sınıflarınız (8/A, 8/B), hoca isminiz, soru havuzlarınız ve geçmiş test raporlarınız <strong>Google hesabınıza</strong> otomatik olarak kaydedilir ve her cihazda hazır gelir.
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginBottom: '28px', lineHeight: 1.6 }}>
+            Testleriniz, sınıf listeleriniz ve geçmiş raporlarınız Google hesabınıza bağlı olarak tüm cihazlarda hazır gelir. Hesabınız yoksa ilk girişte otomatik oluşturulur.
           </p>
 
           <button
+            id="btn-google-login"
             onClick={handleGoogleLogin}
             style={{
               width: '100%',
@@ -898,13 +928,15 @@ export default function OgretmenScannerPage() {
               border: 'none',
               borderRadius: '12px',
               padding: '14px 20px',
-              fontSize: '1.05rem',
+              fontSize: '1rem',
               fontWeight: 800,
               cursor: 'pointer',
-              boxShadow: '0 4px 16px rgba(255, 255, 255, 0.2)',
-              marginBottom: '16px',
-              transition: 'transform 0.15s ease'
+              boxShadow: '0 4px 16px rgba(255, 255, 255, 0.15)',
+              marginBottom: '18px',
+              transition: 'transform 0.15s ease, box-shadow 0.15s ease'
             }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.02)'; e.currentTarget.style.boxShadow = '0 6px 24px rgba(255,255,255,0.25)'; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(255,255,255,0.15)'; }}
           >
             <svg width="22" height="22" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.65v3h3.88c2.27-2.09 3.665-5.17 3.665-9.09z"/>
@@ -915,19 +947,31 @@ export default function OgretmenScannerPage() {
             Google ile Giriş Yap
           </button>
 
-          <button
-            onClick={() => setGuestBypass(true)}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--text-dim)',
-              fontSize: '0.8rem',
-              cursor: 'pointer',
-              textDecoration: 'underline'
-            }}
-          >
-            Misafir / Geliştirici Modu ile Devam Et
-          </button>
+          {/* Oturumum açık kalsın checkbox */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            fontSize: '0.85rem',
+            userSelect: 'none'
+          }}>
+            <input
+              type="checkbox"
+              id="remember-me-check"
+              checked={rememberMe}
+              onChange={e => setRememberMe(e.target.checked)}
+              style={{
+                width: '16px',
+                height: '16px',
+                accentColor: '#3b82f6',
+                cursor: 'pointer'
+              }}
+            />
+            Oturumumu açık tut
+          </label>
         </div>
       </div>
     );
@@ -972,8 +1016,8 @@ export default function OgretmenScannerPage() {
               style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #3b82f6' }}
             />
           )}
-          <span style={{ fontSize: '0.78rem', color: '#e5e7eb', maxWidth: '90px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {user?.displayName || 'Misafir Hoca'}
+          <span style={{ fontSize: '0.78rem', color: '#e5e7eb', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {user?.displayName || user?.email?.split('@')[0] || 'Öğretmen'}
           </span>
           <button
             onClick={handleSignOut}
